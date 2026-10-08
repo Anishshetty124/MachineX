@@ -4,6 +4,9 @@ const FormData = require('form-data')
 const multer = require('multer')
 const mongoose = require('mongoose')
 const crypto = require('crypto')
+const { Readable } = require('node:stream')
+const fs = require('node:fs')
+const path = require('node:path')
 const Inspection = require('../models/Inspection')
 const PartModel = require('../models/PartModel')
 const { GridFSBucket, ObjectId } = mongoose.mongo
@@ -15,6 +18,20 @@ const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://127.0.0.1:8000'
 function getImageBucket() {
   if (mongoose.connection.readyState !== 1 || !mongoose.connection.db) return null
   return new GridFSBucket(mongoose.connection.db, { bucketName: 'inspectionImages' })
+}
+
+function storeImage(file) {
+  const bucket = getImageBucket()
+  if (!bucket || !file) return Promise.resolve(null)
+  return new Promise((resolve, reject) => {
+    const uploadStream = bucket.openUploadStream(file.originalname, {
+      contentType: file.mimetype,
+      metadata: { source: 'inspection' },
+    })
+    uploadStream.once('error', reject)
+    uploadStream.once('finish', () => resolve(uploadStream.id))
+    Readable.from(file.buffer).pipe(uploadStream)
+  })
 }
 
 async function deleteInspectionRecord(inspection) {
@@ -73,6 +90,103 @@ router.get('/:id', requireAuth, async (request, response, next) => {
   }
 })
 
+router.get('/:id/history-analysis', requireAuth, async (request, response, next) => {
+  try {
+    if (!mongoose.isValidObjectId(request.params.id)) return response.status(400).json({ error: 'Invalid inspection ID' })
+    const current = await Inspection.findOne({
+      _id: request.params.id,
+      ...(request.user.role === 'admin' ? {} : { createdBy: request.user._id }),
+    }).select('part severity defectType defect confidence predictiveRisk createdAt')
+    if (!current) return response.status(404).json({ error: 'Inspection not found' })
+
+    const part = String(current.part || '').trim()
+    let records = await Inspection.find({
+      _id: { $ne: current._id },
+      part: { $regex: `^${escapeRegex(part)}$`, $options: 'i' },
+      ...(request.user.role === 'admin' ? {} : { createdBy: request.user._id }),
+    }).sort({ createdAt: -1 }).select('part severity defectType defect predictiveRisk createdAt').limit(30).lean()
+    let source = 'database'
+    if (!records.length && process.env.NODE_ENV !== 'production') {
+      try {
+        const demoDataset = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'dataset', 'history-inspections.json'), 'utf8'))
+        records = demoDataset.filter((record) => String(record.part || '').toLowerCase() === part.toLowerCase()).slice(0, 30)
+        source = records.length ? 'development-dataset' : source
+      } catch (datasetError) {
+        console.warn('[Express] Development history dataset unavailable:', datasetError.message)
+      }
+    }
+
+    const severityRank = { low: 1, medium: 2, high: 3, critical: 4 }
+    const severityCounts = records.reduce((counts, record) => {
+      const level = String(record.severity || record.defect?.severity || 'low').toLowerCase()
+      counts[level] = (counts[level] || 0) + 1
+      return counts
+    }, {})
+    const risks = records.map((record) => Number(record.predictiveRisk?.failureProbabilityNextCycle)).filter(Number.isFinite)
+    const currentRisk = Number(current.predictiveRisk?.failureProbabilityNextCycle)
+    const averageRisk = risks.length ? risks.reduce((sum, value) => sum + value, 0) / risks.length : null
+    const previousSeverities = records.map((record) => String(record.severity || record.defect?.severity || 'low').toLowerCase())
+    const currentSeverity = String(current.severity || current.defect?.severity || 'low').toLowerCase()
+    const lastSeverity = previousSeverities[0]
+    const riskSeries = [...records].reverse().map((record) => ({
+      date: record.createdAt,
+      risk: Number.isFinite(Number(record.predictiveRisk?.failureProbabilityNextCycle)) ? Number(record.predictiveRisk.failureProbabilityNextCycle) : null,
+      severity: String(record.severity || record.defect?.severity || 'low').toLowerCase(),
+    })).filter((point) => point.risk !== null)
+    if (Number.isFinite(currentRisk)) riskSeries.push({ date: current.createdAt, risk: currentRisk, severity: currentSeverity })
+    const riskSlope = riskSeries.length > 1 ? (riskSeries[riskSeries.length - 1].risk - riskSeries[0].risk) / (riskSeries.length - 1) : 0
+    const projectedRisk = Math.max(0.05, Math.min(0.98, (Number.isFinite(currentRisk) ? currentRisk : averageRisk || 0.3) + riskSlope))
+    const defectCounts = records.reduce((counts, record) => {
+      const defect = record.defectType || record.defect?.type || 'Unclassified defect'
+      counts[defect] = (counts[defect] || 0) + 1
+      return counts
+    }, {})
+    const likelyDefect = Object.entries(defectCounts).sort(([, first], [, second]) => second - first)[0]?.[0] || current.defectType || current.defect?.type || 'Unclassified defect'
+    const recommendedAction = projectedRisk >= 0.7
+      ? 'Hold the next batch for supervisor review and inspect related process controls before release.'
+      : projectedRisk >= 0.45
+        ? 'Schedule a targeted preventive inspection and verify process parameters before the next batch.'
+        : 'Continue monitoring this part and keep the current inspection frequency.'
+
+    response.json({
+      data: {
+        part,
+        records,
+        count: records.length,
+        severityCounts,
+        averageRisk,
+        currentRisk: Number.isFinite(currentRisk) ? currentRisk : null,
+        trend: lastSeverity && severityRank[currentSeverity] > severityRank[lastSeverity] ? 'worsening' : lastSeverity && severityRank[currentSeverity] < severityRank[lastSeverity] ? 'improving' : 'stable',
+        riskSeries,
+        projectedRisk,
+        forecastConfidence: Math.min(0.95, 0.55 + (records.length * 0.06)),
+        likelyDefect,
+        recommendedAction,
+        source,
+      },
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
+router.get('/:id/image', requireAuth, async (request, response, next) => {
+  try {
+    if (!mongoose.isValidObjectId(request.params.id)) return response.status(400).json({ error: 'Invalid inspection ID' })
+    const inspection = await Inspection.findOne({
+      _id: request.params.id,
+      ...(request.user.role === 'admin' ? {} : { createdBy: request.user._id }),
+    }).select('imageGridFsId imageContentType')
+    if (!inspection?.imageGridFsId) return response.status(404).json({ error: 'Inspection image not found' })
+    const bucket = getImageBucket()
+    if (!bucket) return response.status(503).json({ error: 'Image storage is unavailable' })
+    response.set('Content-Type', inspection.imageContentType || 'application/octet-stream')
+    bucket.openDownloadStream(new ObjectId(inspection.imageGridFsId)).on('error', next).pipe(response)
+  } catch (error) {
+    next(error)
+  }
+})
+
 router.delete('/bulk', requireAuth, async (request, response, next) => {
   try {
     const ids = Array.isArray(request.body?.ids) ? [...new Set(request.body.ids)] : []
@@ -115,6 +229,7 @@ router.delete('/:id', requireAuth, async (request, response, next) => {
 })
 
 router.post('/process', requireAuth, upload.single('image'), async (request, response, next) => {
+  let uploadedImageId = null
   let inspection
   try {
     const telemetry = typeof request.body.telemetry === 'string' ? JSON.parse(request.body.telemetry) : request.body.telemetry || {}
@@ -227,6 +342,7 @@ router.post('/process', requireAuth, upload.single('image'), async (request, res
         }
       : null
 
+    uploadedImageId = await storeImage(request.file)
     inspection = await Inspection.create({
       createdBy: request.user._id,
       part: detectedPart || 'Brake pad',
@@ -242,9 +358,13 @@ router.post('/process', requireAuth, upload.single('image'), async (request, res
       rootCause: analysis.rootCause,
       predictiveRisk: analysis.predictiveRisk,
       recommendation: analysis.recommendation,
+      severityAssessment: analysis.severityAssessment,
+      actionPlan: analysis.actionPlan,
+      scorecard: analysis.scorecard,
       telemetryHistory: analysis.telemetryHistory || [],
       imageFilename: request.file?.originalname,
       imageContentType: request.file?.mimetype,
+      imageGridFsId: uploadedImageId,
       model: matchedModel?._id,
     })
 
@@ -254,6 +374,16 @@ router.post('/process', requireAuth, upload.single('image'), async (request, res
 
     return response.status(201).json({ ...analysis, inspectionId: inspection._id, modelAsset, data: inspection })
   } catch (error) {
+    if (uploadedImageId) {
+      const imageBucket = getImageBucket()
+      if (imageBucket) {
+        try {
+          await imageBucket.delete(new ObjectId(uploadedImageId))
+        } catch (cleanupError) {
+          console.error('[Express Error] Failed to clean up uploaded inspection image:', cleanupError.message)
+        }
+      }
+    }
     console.error('[Express Fatal Error] Process route failed:', error)
     next(error)
   }

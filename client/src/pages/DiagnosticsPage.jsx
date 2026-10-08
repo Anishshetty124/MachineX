@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Activity, Cpu, CheckCircle2, AlertOctagon, Wrench, ShieldAlert, Target, Thermometer, Gauge, Vibrate, ClipboardCheck } from 'lucide-react'
+import { ArrowLeft, Activity, Cpu, CheckCircle2, AlertOctagon, Wrench, ShieldAlert, Target, ClipboardCheck } from 'lucide-react'
 import { authFetch } from '../auth'
 
 export default function DiagnosticsPage() {
@@ -9,6 +9,8 @@ export default function DiagnosticsPage() {
   const [inspection, setInspection] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [evidenceUrl, setEvidenceUrl] = useState('')
+  const [historyAnalysis, setHistoryAnalysis] = useState(null)
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -35,6 +37,20 @@ export default function DiagnosticsPage() {
         })
         .then((payload) => {
           setInspection(payload.data || payload)
+          if (!id.startsWith('fallback-') && id !== 'latest') {
+            authFetch(`/api/inspections/${id}/history-analysis`)
+              .then((historyResponse) => historyResponse.ok ? historyResponse.json() : null)
+              .then((historyPayload) => setHistoryAnalysis(historyPayload?.data || null))
+              .catch(() => setHistoryAnalysis(null))
+          }
+          if (!id.startsWith('fallback-') && id !== 'latest') {
+            authFetch(`/api/inspections/${id}/image`)
+              .then((imageResponse) => imageResponse.ok ? imageResponse.blob() : null)
+              .then((blob) => {
+                if (blob) setEvidenceUrl(URL.createObjectURL(blob))
+              })
+              .catch(() => null)
+          }
           setLoading(false)
         })
         .catch((requestError) => {
@@ -49,6 +65,10 @@ export default function DiagnosticsPage() {
     }, 0)
     return () => window.clearTimeout(timer)
   }, [id])
+
+  useEffect(() => () => {
+    if (evidenceUrl) URL.revokeObjectURL(evidenceUrl)
+  }, [evidenceUrl])
 
   if (loading) {
     return (
@@ -84,16 +104,19 @@ export default function DiagnosticsPage() {
   const boxY = Math.round((box.y ?? box[1] ?? 0.26) * 100)
   const boxWidth = Math.max(8, Math.round((box.width ?? box[2] ?? 0.2) * 100))
   const boxHeight = Math.max(8, Math.round((box.height ?? box[3] ?? 0.2) * 100))
-  const processReadings = [
-    { label: 'Casting temperature', value: telemetry.castingTemp ?? telemetry.temperature, unit: '°C', icon: Thermometer, limit: '680–710' },
-    { label: 'Mold pressure', value: telemetry.moldPressure, unit: 'bar', icon: Gauge, limit: '120–150' },
-    { label: 'Machine speed', value: telemetry.machineSpeed, unit: 'RPM', icon: Activity, limit: '0–100' },
-    { label: 'Vibration rate', value: telemetry.vibrationRate ?? telemetry.vibration, unit: 'mm/s', icon: Vibrate, limit: '< 5' },
-  ]
-  const history = inspection?.telemetryHistory || []
+  const severityAssessment = inspection?.severityAssessment || {}
+  const actionPlan = inspection?.actionPlan || {}
+  const historyRiskPercent = historyAnalysis?.averageRisk == null ? null : Math.round(historyAnalysis.averageRisk * 100)
+  const currentRiskPercent = historyAnalysis?.currentRisk == null ? null : Math.round(historyAnalysis.currentRisk * 100)
+  const projectedRiskPercent = historyAnalysis?.projectedRisk == null ? null : Math.round(historyAnalysis.projectedRisk * 100)
+  const forecastConfidencePercent = historyAnalysis?.forecastConfidence == null ? null : Math.round(historyAnalysis.forecastConfidence * 100)
+  const historySeverities = ['low', 'medium', 'high', 'critical']
+  const riskPoints = historyAnalysis?.riskSeries?.length
+    ? [...historyAnalysis.riskSeries.map((point, index, series) => `${(index / Math.max(1, series.length)) * 85},${100 - (point.risk * 100)}`), `100,${100 - (historyAnalysis.projectedRisk * 100)}`].join(' ')
+    : ''
 
   return (
-    <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '2rem 1.5rem', color: '#f8fafc' }}>
+    <div className="diagnostics-page" style={{ maxWidth: '1100px', margin: '0 auto', padding: '2rem 1.5rem', color: '#f8fafc' }}>
       {error && <div className="history-error">{error}</div>}
       <button 
         onClick={() => navigate(-1)} 
@@ -130,7 +153,7 @@ export default function DiagnosticsPage() {
         </span>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.8rem', marginBottom: '1.5rem' }}>
+      <div className="diagnostics-summary-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.8rem', marginBottom: '1.5rem' }}>
         {[
           ['Detected part', inspection?.part || inspection?.detectedPart || 'Unknown', Target],
           ['Defect confidence', `${Math.round((defect.confidence || 0) * 100)}%`, ClipboardCheck],
@@ -145,7 +168,43 @@ export default function DiagnosticsPage() {
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem', marginBottom: '1.5rem' }}>
+      <div className="diagnostics-evidence-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 1fr) minmax(280px, 1fr)', gap: '1.5rem', marginBottom: '1.5rem' }}>
+            <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', padding: '1.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <h3 style={{ margin: 0, fontSize: '16px', color: '#38bdf8' }}>Inspection evidence</h3>
+                <span style={{ color: '#80909b', fontSize: '11px' }}>{inspection?.imageFilename || 'synthetic evidence'}</span>
+              </div>
+              {evidenceUrl ? (
+                <div style={{ position: 'relative', overflow: 'hidden', borderRadius: '8px', background: '#111c29' }}>
+                  <img src={evidenceUrl} alt="Inspected component evidence" style={{ display: 'block', width: '100%', maxHeight: '310px', objectFit: 'contain' }} />
+                </div>
+              ) : (
+                <div style={{ minHeight: '220px', display: 'grid', placeItems: 'center', color: '#80909b', border: '1px dashed #314153', borderRadius: '8px', textAlign: 'center', padding: '1rem' }}>
+                  Evidence image is unavailable in this fallback report.
+                </div>
+              )}
+            </div>
+
+            <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', padding: '1.5rem' }}>
+              <h3 style={{ margin: '0 0 1rem', fontSize: '16px', color: '#fbbf24' }}>Severity decision</h3>
+              <strong style={{ color: isCritical ? '#f87171' : '#fbbf24', fontSize: '24px' }}>{severityAssessment.level || defect.severity || 'Unknown'}</strong>
+              <p style={{ color: '#cbd5e1', fontSize: '13px', lineHeight: 1.5 }}>{severityAssessment.logic || 'Severity is based on defect type, process deviation and model confidence.'}</p>
+              {severityAssessment.humanReviewRequired && <p style={{ color: '#fbbf24', fontSize: '12px' }}>Human review required because confidence is below the automatic-action threshold.</p>}
+              <div style={{ marginTop: '1.2rem', padding: '1rem', background: '#1e293b', borderRadius: '8px', borderLeft: '4px solid #4ade80' }}>
+                <small style={{ display: 'block', color: '#80909b', textTransform: 'uppercase', letterSpacing: '.06em' }}>Next action</small>
+                <strong style={{ display: 'block', color: '#f8fafc', marginTop: '.4rem', fontSize: '14px' }}>{inspection?.recommendation || 'Review the affected machine before the next cycle.'}</strong>
+                <span style={{ display: 'block', color: '#94a3b8', fontSize: '12px', marginTop: '.5rem' }}>
+                  Owner: {actionPlan.owner || 'Line maintenance engineer'} · Priority: {actionPlan.priority || 'Before next cycle'}
+                </span>
+              </div>
+              {rootCause.evidence?.length > 0 && <div style={{ marginTop: '1.1rem', padding: '.8rem', background: '#111c29', borderRadius: '8px' }}>
+                <small style={{ display: 'block', color: '#80909b', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '.45rem' }}>Evidence used</small>
+                {rootCause.evidence.map((evidence) => <div key={evidence} style={{ color: '#cbd5e1', fontSize: '11px', lineHeight: 1.6 }}>• {evidence}</div>)}
+              </div>}
+            </div>
+          </div>
+
+      <div className="diagnostics-analysis-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem', marginBottom: '1.5rem' }}>
         {/* SHAP Impact Card */}
         <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', padding: '1.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#38bdf8', marginBottom: '1rem' }}>
@@ -183,11 +242,14 @@ export default function DiagnosticsPage() {
             <p style={{ color: '#94a3b8', fontSize: '13px', margin: '0.75rem 0 0 0' }}>
               Risk score for Machine {predictiveRisk.machineId || telemetry.machineId || 'Line A - Chassis'} on next cycle
             </p>
+            <p style={{ color: '#4ade80', fontSize: '12px', margin: '0.6rem 0 0' }}>
+              If the recommended action is completed: {Math.round((predictiveRisk.counterfactualAfterAction ?? Math.max(0.08, (predictiveRisk.failureProbabilityNextCycle || 0.74) - 0.38)) * 100)}% estimated risk
+            </p>
           </div>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 0.9fr) minmax(360px, 1.1fr)', gap: '1.5rem', marginBottom: '1.5rem' }}>
+      <div className="diagnostics-risk-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 0.9fr) minmax(360px, 1.1fr)', gap: '1.5rem', marginBottom: '1.5rem' }}>
         <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', padding: '1.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#fbbf24', marginBottom: '1rem' }}>
             <Target size={20} />
@@ -223,23 +285,65 @@ export default function DiagnosticsPage() {
       </div>
 
       <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#38bdf8', marginBottom: '1rem' }}>
-          <Thermometer size={20} />
-          <h3 style={{ margin: 0, fontSize: '16px' }}>Process telemetry at inspection</h3>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.8rem' }}>
-          {processReadings.map(({ label, value, unit, icon: Icon, limit }) => {
-            const numeric = Number(value)
-            const percentage = Number.isFinite(numeric) ? Math.min(100, Math.max(8, numeric / (label.includes('temperature') ? 8 : label.includes('pressure') ? 2 : label.includes('vibration') ? 10 : 1))) : 8
-            return <div key={label} style={{ padding: '0.9rem', background: '#111c29', borderRadius: '8px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#80909b', fontSize: '11px' }}><span><Icon size={14} style={{ verticalAlign: 'middle', marginRight: '5px' }} />{label}</span><span>{limit}</span></div>
-              <strong style={{ display: 'block', color: '#f8fafc', fontSize: '20px', margin: '0.6rem 0' }}>{value ?? '—'} <small style={{ color: '#94a3b8', fontSize: '11px' }}>{unit}</small></strong>
-              <div style={{ height: '5px', background: '#263749', borderRadius: '3px' }}><div style={{ width: `${percentage}%`, height: '100%', background: percentage > 85 ? '#f87171' : '#38bdf8', borderRadius: '3px' }} /></div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.1rem' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#38bdf8' }}>
+              <Activity size={20} />
+              <h3 style={{ margin: 0, fontSize: '16px' }}>Historical analysis — {inspection?.part || 'this part'}</h3>
             </div>
-          })}
+            <p style={{ color: '#94a3b8', fontSize: '12px', margin: '0.55rem 0 0' }}>
+              Comparison with {historyAnalysis?.count || 0} previous reports for the same part in your inspection history.
+              {historyAnalysis?.source === 'development-dataset' && <span style={{ color: '#fbbf24' }}> Development demo dataset</span>}
+            </p>
+          </div>
+          {historyAnalysis?.trend && <span style={{ color: historyAnalysis.trend === 'worsening' ? '#f87171' : historyAnalysis.trend === 'improving' ? '#4ade80' : '#fbbf24', fontSize: '12px', fontWeight: 700, textTransform: 'uppercase' }}>{historyAnalysis.trend}</span>}
         </div>
-        {history.length > 0 && <div style={{ marginTop: '1.2rem', color: '#80909b', fontSize: '11px' }}>Casting temperature history: {history.map((item) => `${item.batchId} ${item.castingTemp}°C`).join('  ·  ')}</div>}
+        {!historyAnalysis?.count ? (
+          <div style={{ padding: '1.2rem', border: '1px dashed #314153', borderRadius: '8px', color: '#94a3b8', fontSize: '13px' }}>
+            No earlier report for this part is available yet. Future inspections will be compared here automatically.
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem', marginBottom: '1.2rem' }}>
+              <div style={{ background: '#111c29', padding: '0.9rem', borderRadius: '8px' }}><small style={{ color: '#80909b' }}>PREVIOUS REPORTS</small><strong style={{ display: 'block', color: '#f8fafc', fontSize: '22px', marginTop: '0.3rem' }}>{historyAnalysis.count}</strong></div>
+              <div style={{ background: '#111c29', padding: '0.9rem', borderRadius: '8px' }}><small style={{ color: '#80909b' }}>AVERAGE PRIOR RISK</small><strong style={{ display: 'block', color: '#fbbf24', fontSize: '22px', marginTop: '0.3rem' }}>{historyRiskPercent}%</strong></div>
+              <div style={{ background: '#111c29', padding: '0.9rem', borderRadius: '8px' }}><small style={{ color: '#80909b' }}>CURRENT RISK</small><strong style={{ display: 'block', color: currentRiskPercent > historyRiskPercent ? '#f87171' : '#4ade80', fontSize: '22px', marginTop: '0.3rem' }}>{currentRiskPercent ?? riskPercent}%</strong></div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 0.8fr) minmax(280px, 1.2fr)', gap: '1.2rem' }}>
+              <div>
+                <small style={{ color: '#80909b', textTransform: 'uppercase' }}>Severity distribution</small>
+                {historySeverities.map((level) => <div key={level} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.65rem' }}><span style={{ width: '58px', color: '#cbd5e1', fontSize: '12px', textTransform: 'capitalize' }}>{level}</span><div style={{ flex: 1, height: '7px', background: '#263749', borderRadius: '4px', overflow: 'hidden' }}><div style={{ width: `${((historyAnalysis.severityCounts?.[level] || 0) / historyAnalysis.count) * 100}%`, height: '100%', background: level === 'critical' || level === 'high' ? '#f87171' : level === 'medium' ? '#fbbf24' : '#4ade80' }} /></div><span style={{ width: '18px', color: '#94a3b8', fontSize: '11px' }}>{historyAnalysis.severityCounts?.[level] || 0}</span></div>)}
+              </div>
+              <div>
+                <small style={{ color: '#80909b', textTransform: 'uppercase' }}>Recent same-part reports</small>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.65rem' }}>
+                  {historyAnalysis.records.slice(0, 4).map((record) => <div key={record._id || record.createdAt} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.7rem', padding: '0.6rem 0.7rem', background: '#111c29', borderRadius: '6px', fontSize: '12px' }}><span style={{ color: '#cbd5e1' }}>{record.defectType || record.defect?.type || 'Unclassified'}</span><span style={{ color: '#94a3b8', whiteSpace: 'nowrap' }}>{new Date(record.createdAt).toLocaleDateString()}</span></div>)}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
+
+      {historyAnalysis?.count > 0 && <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 1.25fr) minmax(260px, .75fr)', gap: '1.5rem', marginBottom: '1.5rem' }}>
+        <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', padding: '1.5rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', marginBottom: '0.8rem' }}>
+            <div><h3 style={{ margin: 0, color: '#38bdf8', fontSize: '16px' }}>Part risk forecast</h3><small style={{ color: '#80909b' }}>Historical risk → current report → next-cycle projection</small></div>
+            <span style={{ color: projectedRiskPercent >= 70 ? '#f87171' : projectedRiskPercent >= 45 ? '#fbbf24' : '#4ade80', fontWeight: 800, fontSize: '20px' }}>{projectedRiskPercent}%</span>
+          </div>
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Historical and projected part risk graph" style={{ width: '100%', height: '190px', background: 'linear-gradient(rgba(56,189,248,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(56,189,248,.08) 1px, transparent 1px)', backgroundSize: '20% 25%', border: '1px solid #25364a', borderRadius: '8px' }}>
+            <polyline points={riskPoints} fill="none" stroke="#38bdf8" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+            {riskPoints && <line x1="85" y1="0" x2="85" y2="100" stroke="#fbbf24" strokeWidth="1" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />}
+          </svg>
+          <div style={{ display: 'flex', justifyContent: 'space-between', color: '#80909b', fontSize: '10px', marginTop: '0.45rem' }}><span>Oldest report</span><span>Current</span><span>Next cycle</span></div>
+        </div>
+        <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', padding: '1.5rem' }}>
+          <h3 style={{ margin: '0 0 1rem', color: '#fbbf24', fontSize: '16px' }}>Production prediction</h3>
+          <div style={{ padding: '0.9rem', background: '#111c29', borderRadius: '8px', marginBottom: '0.8rem' }}><small style={{ color: '#80909b' }}>LIKELY NEXT DEFECT</small><strong style={{ display: 'block', color: '#f8fafc', marginTop: '0.35rem' }}>{historyAnalysis.likelyDefect}</strong></div>
+          <div style={{ padding: '0.9rem', background: '#111c29', borderRadius: '8px', marginBottom: '0.8rem' }}><small style={{ color: '#80909b' }}>FORECAST CONFIDENCE</small><strong style={{ display: 'block', color: '#38bdf8', marginTop: '0.35rem' }}>{forecastConfidencePercent}%</strong></div>
+          <p style={{ color: '#cbd5e1', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>{historyAnalysis.recommendedAction}</p>
+        </div>
+      </div>}
 
       {/* Pointwise Executive Briefing */}
       <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem' }}>

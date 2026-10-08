@@ -14,7 +14,7 @@ function signUser(user) {
 async function requireAuth(request, response, next) {
   try {
     const header = request.get('authorization') || ''
-    const token = header.startsWith('Bearer ') ? header.slice(7) : ''
+    const token = header.startsWith('Bearer ') ? header.slice(7) : request.query.token
     if (!token) return response.status(401).json({ error: 'Authentication required' })
     const claims = jwt.verify(token, jwtSecret())
     const user = await User.findById(claims.sub).select('+passwordHash').lean()

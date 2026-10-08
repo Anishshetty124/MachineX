@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CalendarDays, CheckCircle2, CheckSquare, Clock3, Filter, RefreshCw, Search, Square, Trash2 } from 'lucide-react'
+import { AlertTriangle, CalendarDays, CheckCircle2, CheckSquare, Clock3, Download, FileSpreadsheet, FileText, Filter, RefreshCw, Search, Square, Trash2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { authFetch } from '../auth'
+import * as XLSX from 'xlsx'
+import { apiBase, authFetch, getAuthToken } from '../auth'
 
 function formatDate(value) {
   if (!value) return 'Unknown date'
@@ -10,6 +11,29 @@ function formatDate(value) {
 
 function severityClass(severity) {
   return String(severity || 'Low').toLowerCase()
+}
+
+function exportCsv(inspections) {
+  const columns = ['Date', 'Part', 'Defect', 'Severity', 'Status', 'Station', 'Production batch', 'Filename', 'Recommendation']
+  const rows = inspections.map((item) => [
+    formatDate(item.createdAt), item.part, item.defectType || item.defect?.type, item.severity, item.status,
+    item.station, item.productionBatch, item.imageFilename, item.recommendation,
+  ])
+  const sheet = XLSX.utils.aoa_to_sheet([columns, ...rows])
+  sheet['!cols'] = columns.map(() => ({ wch: 22 }))
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, sheet, 'Inspection history')
+  XLSX.writeFile(workbook, `machinex-inspection-history-${new Date().toISOString().slice(0, 10)}.xlsx`)
+}
+
+function printPdf(inspections) {
+  const rows = inspections.map((item) => `<tr><td>${formatDate(item.createdAt)}</td><td>${item.part || ''}</td><td>${item.defectType || item.defect?.type || ''}</td><td>${item.severity || ''}</td><td>${item.station || ''}</td><td>${item.recommendation || ''}</td></tr>`).join('')
+  const printWindow = window.open('', '_blank', 'width=1000,height=700')
+  if (!printWindow) return
+  printWindow.document.write(`<html><head><title>MachineX inspection report</title><style>body{font:14px Arial;padding:32px;color:#17232b}h1{margin-bottom:6px}p{color:#64748b}table{width:100%;border-collapse:collapse;margin-top:24px}th,td{border:1px solid #cbd5e1;padding:9px;text-align:left;vertical-align:top}th{background:#e2e8f0}</style></head><body><h1>MachineX Inspection Report</h1><p>Exported ${new Date().toLocaleString()}</p><table><thead><tr><th>Date</th><th>Part</th><th>Defect</th><th>Severity</th><th>Station</th><th>Recommendation</th></tr></thead><tbody>${rows}</tbody></table></body></html>`)
+  printWindow.document.close()
+  printWindow.focus()
+  printWindow.print()
 }
 
 export default function HistoryPage() {
@@ -144,6 +168,8 @@ export default function HistoryPage() {
         <button type="button" className="history-delete history-bulk-delete" onClick={deleteSelected} disabled={!selectedIds.size || bulkDeleting}>
           <Trash2 size={15} /> {bulkDeleting ? 'Deleting...' : `Delete selected${selectedIds.size ? ` (${selectedIds.size})` : ''}`}
         </button>
+        <button type="button" className="history-export" onClick={() => exportCsv(filteredInspections)} disabled={!filteredInspections.length}><FileSpreadsheet size={15} /> Excel</button>
+        <button type="button" className="history-export" onClick={() => printPdf(filteredInspections)} disabled={!filteredInspections.length}><FileText size={15} /> PDF</button>
       </div>
 
       {error && <div className="history-error"><AlertTriangle size={16} /> {error}</div>}
@@ -155,6 +181,7 @@ export default function HistoryPage() {
               <input type="checkbox" checked={selectedIds.has(inspection._id)} onChange={() => toggleSelection(inspection._id)} />
               <span />
             </label>
+            {inspection.imageGridFsId ? <img className="history-image" src={`${apiBase}/api/inspections/${inspection._id}/image?token=${encodeURIComponent(getAuthToken() || '')}`} alt={`${inspection.part || 'Inspection'} evidence`} /> : <div className="history-image history-image-empty"><Download size={18} /></div>}
             <div className="history-part-mark">{(inspection.part || 'U').slice(0, 1).toUpperCase()}</div>
             <div className="history-main">
               <div className="history-row-title"><h2>{inspection.part || 'Unknown part'}</h2><span className={`severity-badge ${severityClass(inspection.severity)}`}>{inspection.severity || 'Low'}</span></div>
@@ -163,6 +190,7 @@ export default function HistoryPage() {
             </div>
             <div className="history-actions">
               <button type="button" className="secondary-button" onClick={() => navigate(`/diagnostics/${inspection._id}`)}>View report</button>
+              <button type="button" className="history-export-icon" onClick={() => printPdf([inspection])} aria-label="Export PDF" title="Export PDF"><FileText size={16} /></button>
               <button type="button" className="history-delete" onClick={() => deleteInspection(inspection)} disabled={deletingId === inspection._id} aria-label={`Delete ${inspection.part || 'inspection'}`}><Trash2 size={16} />{deletingId === inspection._id ? 'Deleting' : 'Delete'}</button>
             </div>
           </article>
