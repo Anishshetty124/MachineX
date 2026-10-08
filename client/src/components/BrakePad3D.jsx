@@ -62,7 +62,44 @@ function Caliper({ exploded }) {
   )
 }
 
-function RemoteModel({ url, exploded, modelColor, solidColor }) {
+function RemoteIssueMarker({ defect2DBox, bounds }) {
+  const marker = useRef()
+  const rawX = Number(defect2DBox?.x)
+  const rawY = Number(defect2DBox?.y)
+  const rawWidth = Number(defect2DBox?.width)
+  const rawHeight = Number(defect2DBox?.height)
+  const hasCoordinates = Number.isFinite(rawX) && Number.isFinite(rawY)
+
+  useFrame(({ clock }) => {
+    if (!marker.current) return
+    marker.current.scale.setScalar(1 + Math.sin(clock.elapsedTime * 4) * 0.08)
+  })
+
+  if (!hasCoordinates) return null
+
+  const x = Math.max(0, Math.min(1, rawX))
+  const y = Math.max(0, Math.min(1, rawY))
+  const width = Math.max(0.04, Math.min(1 - x, rawWidth || 0.12))
+  const height = Math.max(0.04, Math.min(1 - y, rawHeight || 0.12))
+  const size = bounds.getSize(new Vector3())
+  const markerWidth = size.x * width
+  const markerHeight = size.y * height
+  const markerDepth = Math.max(size.x, size.y, size.z) * 0.012
+  const position = [
+    bounds.min.x + size.x * (x + width / 2),
+    bounds.max.y - size.y * (y + height / 2),
+    bounds.max.z + markerDepth,
+  ]
+
+  return (
+    <mesh ref={marker} position={position}>
+      <boxGeometry args={[markerWidth, markerHeight, markerDepth]} />
+      <meshBasicMaterial color="#ff4e4e" wireframe />
+    </mesh>
+  )
+}
+
+function RemoteModel({ url, exploded, modelColor, solidColor, defect2DBox, showDefect }) {
   const { scene } = useGLTF(url)
   const fit = useMemo(() => {
     const bounds = new Box3().setFromObject(scene)
@@ -72,6 +109,7 @@ function RemoteModel({ url, exploded, modelColor, solidColor }) {
     const scale = largestDimension > 0 ? 2.8 / largestDimension : 1
 
     return {
+      bounds,
       scale,
       position: [-center.x * scale, -center.y * scale, -center.z * scale],
     }
@@ -97,6 +135,7 @@ function RemoteModel({ url, exploded, modelColor, solidColor }) {
   return (
     <group scale={fit.scale} position={[fit.position[0], fit.position[1] + (exploded ? 0.45 : 0), fit.position[2]]}>
       <primitive object={scene} />
+      {showDefect && <RemoteIssueMarker defect2DBox={defect2DBox} bounds={fit.bounds} />}
     </group>
   )
 }
@@ -134,7 +173,9 @@ class ModelErrorBoundary extends Component {
 
 function BrakePadCanvas({ 
   modelUrl, 
+  defect2DBox,
   exploded, 
+  showDefect,
   modelColor, 
   solidColor, 
   backgroundColor,
@@ -172,7 +213,14 @@ function BrakePadCanvas({
         <group position={[0, 0, 0]} rotation={[0.35, -0.35, 0]}>
           {modelUrl ? (
             <Suspense fallback={null}>
-              <RemoteModel url={modelUrl} exploded={exploded} modelColor={modelColor} solidColor={solidColor} />
+              <RemoteModel
+                url={modelUrl}
+                exploded={exploded}
+                modelColor={modelColor}
+                solidColor={solidColor}
+                defect2DBox={defect2DBox}
+                showDefect={showDefect}
+              />
             </Suspense>
           ) : (
             <>
