@@ -1,7 +1,7 @@
-import { Html, OrbitControls, Stage } from '@react-three/drei'
+import { Bounds, Html, OrbitControls, useGLTF } from '@react-three/drei'
 import { Canvas, useFrame } from '@react-three/fiber'
-import { useRef } from 'react'
-import * as THREE from 'three'
+import { Component, Suspense, useRef } from 'react'
+import { ZoomIn, ZoomOut } from 'lucide-react'
 import { map2DTo3DSurface } from '../utils/coordinateMapper'
 
 function Rotor({ exploded }) {
@@ -85,19 +85,58 @@ function DefectMarker({ defect2DBox, defectType, severity }) {
   )
 }
 
-export default function BrakePad3D({ defect2DBox, defectType, severity, exploded }) {
+function RemoteModel({ url, exploded }) {
+  const { scene } = useGLTF(url)
+  return <primitive object={scene} scale={1.8} position={[0, exploded ? 0.45 : 0, 0]} />
+}
+
+function DatabaseModel({ url, exploded }) {
+  return <RemoteModel url={url} exploded={exploded} />
+}
+
+class ModelErrorBoundary extends Component {
+  state = { hasError: false }
+
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+
+  render() {
+    return this.state.hasError ? <div className="model-empty"><strong>3D model could not be rendered</strong><span>Check that the uploaded model was converted successfully.</span></div> : this.props.children
+  }
+}
+
+function BrakePadCanvas({ modelUrl, defect2DBox, defectType, severity, exploded }) {
+  const controlsRef = useRef()
+  const zoom = (direction) => {
+    if (!controlsRef.current) return
+    direction === 'in' ? controlsRef.current.dollyIn(1.25) : controlsRef.current.dollyOut(1.25)
+    controlsRef.current.update()
+  }
+
   return (
-    <Canvas camera={{ position: [4.2, 3.2, 5.1], fov: 42 }} dpr={[1, 2]}>
-      <color attach="background" args={['#101a20']} />
-      <Stage intensity={0.7} environment="city" adjustCamera={false}>
-        <group rotation={[0.35, -0.35, 0]}>
-          <Rotor exploded={exploded} />
-          <BrakePad exploded={exploded} />
-          <Caliper exploded={exploded} />
-          <DefectMarker defect2DBox={defect2DBox} defectType={defectType} severity={severity} />
-        </group>
-      </Stage>
-      <OrbitControls enableDamping minDistance={3.5} maxDistance={8} />
-    </Canvas>
+    <>
+      <Canvas camera={{ position: [4.2, 3.2, 5.1], fov: 42 }} dpr={[1, 2]}>
+        <color attach="background" args={['#101a20']} />
+        <ambientLight intensity={1.2} />
+        <directionalLight position={[4, 5, 6]} intensity={2.4} />
+        <directionalLight position={[-4, -2, -3]} intensity={0.8} />
+        <Bounds fit clip observe margin={1.35}>
+          <group rotation={[0.35, -0.35, 0]}>
+            {modelUrl ? <Suspense fallback={null}><DatabaseModel url={modelUrl} exploded={exploded} /></Suspense> : <><Rotor exploded={exploded} /><BrakePad exploded={exploded} /><Caliper exploded={exploded} /></>}
+            <DefectMarker defect2DBox={defect2DBox} defectType={defectType} severity={severity} />
+          </group>
+        </Bounds>
+        <OrbitControls ref={controlsRef} makeDefault enableDamping enableZoom minDistance={0.5} maxDistance={30} />
+      </Canvas>
+      <div className="model-zoom-controls" aria-label="3D model zoom controls">
+        <button type="button" className="icon-button" onClick={() => zoom('in')} title="Zoom in" aria-label="Zoom in"><ZoomIn size={17} /></button>
+        <button type="button" className="icon-button" onClick={() => zoom('out')} title="Zoom out" aria-label="Zoom out"><ZoomOut size={17} /></button>
+      </div>
+    </>
   )
+}
+
+export default function BrakePad3D(props) {
+  return <ModelErrorBoundary><BrakePadCanvas {...props} /></ModelErrorBoundary>
 }

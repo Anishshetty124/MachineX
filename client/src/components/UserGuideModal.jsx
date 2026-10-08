@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowLeft, ArrowRight, Camera, CheckCircle2, CircleHelp, Download, Gauge, ImagePlus, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { ArrowLeft, ArrowRight, Camera, CheckCircle2, Download, Gauge, ImagePlus, X } from 'lucide-react'
+import { useState } from 'react'
 
 const steps = [
   { title: 'Capture the evidence', description: 'Upload a brake-pad photo or capture one directly from the inspection station. Add the machine telemetry and part details alongside it.', icon: ImagePlus },
@@ -11,10 +11,6 @@ const steps = [
 
 export default function UserGuideModal({ open, onClose, onDemo }) {
   const [step, setStep] = useState(0)
-
-  useEffect(() => {
-    if (open) setStep(0)
-  }, [open])
 
   const current = steps[step]
   const Icon = current.icon

@@ -27,8 +27,9 @@ app.use('/api/telemetry', require('./routes/telemetry'))
 app.use('/api/chatbot', require('./routes/chatbot'))
 
 app.use((error, _request, response, _next) => {
+  console.error(error)
   const status = error.name === 'ValidationError' ? 400 : error.code === 11000 ? 409 : 500
-  response.status(status).json({ error: status === 500 ? 'Internal server error' : error.message })
+  response.status(status).json({ error: process.env.NODE_ENV === 'production' && status === 500 ? 'Internal server error' : error.message })
 })
 
 io.on('connection', (socket) => {
