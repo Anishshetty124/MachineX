@@ -2,6 +2,7 @@ import { Camera, Check, ChevronDown, FileImage, Pencil, RotateCcw, ScanSearch, T
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import BrakePad3D from '../components/BrakePad3D'
+import { authFetch } from '../auth'
 
 const initialData = {
   part: 'Brake pad',
@@ -88,7 +89,7 @@ export default function InspectionPage({ demoRequested = false }) {
   useEffect(() => {
     let cancelled = false
 
-    fetch(`${apiBase}/api/models`)
+    authFetch('/api/models')
       .then((response) => {
         if (!response.ok) throw new Error('Model service unavailable')
         return response.json()
@@ -206,7 +207,7 @@ export default function InspectionPage({ demoRequested = false }) {
 
       let result
       try {
-        const response = await fetch(`${apiBase}/api/inspections/process`, { method: 'POST', body: payload })
+        const response = await authFetch('/api/inspections/process', { method: 'POST', body: payload })
         if (!response.ok) throw new Error('API server error')
         result = await response.json()
       } catch {

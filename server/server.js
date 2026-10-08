@@ -54,6 +54,7 @@ app.get('/api/health', (_request, response) =>
 
 // API Route Handlers
 app.use('/api/inspections', require('./routes/inspections'))
+app.use('/api/auth', require('./routes/auth'))
 app.use('/api/models', require('./routes/models'))
 app.use('/api/users', require('./routes/users'))
 app.use('/api/telemetry', require('./routes/telemetry'))
@@ -89,6 +90,13 @@ async function start() {
   try {
     await mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 5000 })
     console.log('[db] MongoDB connected successfully')
+    if (process.env.ADMIN_EMAIL) {
+      const result = await mongoose.model('User').updateOne(
+        { email: process.env.ADMIN_EMAIL.trim().toLowerCase() },
+        { $set: { role: 'admin' } }
+      )
+      if (result.modifiedCount) console.log(`[auth] Bootstrap admin role applied to ${process.env.ADMIN_EMAIL.trim().toLowerCase()}`)
+    }
   } catch (error) {
     console.warn('[db] MongoDB connection failed:', error.message)
     console.warn('[db] Running API in fallback in-memory mode')

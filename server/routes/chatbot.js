@@ -1,4 +1,5 @@
 const router = require('express').Router()
+const { requireAuth } = require('../middleware/auth')
 const axios = require('axios')
 
 const keys = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '')
@@ -14,7 +15,7 @@ Help users understand image uploads, part selection, 3D model matching, defect m
 Use concise, clear language. Do not invent inspection results, sensor values, model matches, or maintenance facts that are not provided.
 If the user asks about something outside MachineX, explain that you can help with MachineX inspection workflows and ask them to rephrase.`
 
-router.post('/', async (request, response) => {
+router.post('/', requireAuth, async (request, response) => {
   const message = String(request.body?.message || '').trim()
   const history = Array.isArray(request.body?.history) ? request.body.history : []
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Bot, Check, Clipboard, Lightbulb, Mic, Send, Sparkles, User } from 'lucide-react'
+import { authFetch } from '../auth'
 
 const SUGGESTIONS = [
   'How do I upload an inspection image?',
@@ -44,7 +45,7 @@ export default function ChatbotPage() {
     setInput('')
     setIsLoading(true)
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL ?? 'http://localhost:5000'}/api/chatbot`, {
+      const response = await authFetch('/api/chatbot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

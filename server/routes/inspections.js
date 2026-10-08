@@ -7,6 +7,7 @@ const crypto = require('crypto')
 const Inspection = require('../models/Inspection')
 const PartModel = require('../models/PartModel')
 const { GridFSBucket, ObjectId } = mongoose.mongo
+const { requireAuth, requireAdmin } = require('../middleware/auth')
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } })
 const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://127.0.0.1:8000'
@@ -43,9 +44,10 @@ function modelSearchTokens(part) {
   )]
 }
 
-router.get('/', async (_request, response, next) => {
+router.get('/', requireAuth, async (request, response, next) => {
   try {
-    const inspections = await Inspection.find({})
+    const filter = request.user.role === 'admin' ? {} : { createdBy: request.user._id }
+    const inspections = await Inspection.find(filter)
       .sort({ createdAt: -1 })
       .select('-__v')
       .lean()
@@ -55,12 +57,15 @@ router.get('/', async (_request, response, next) => {
   }
 })
 
-router.get('/:id', async (request, response, next) => {
+router.get('/:id', requireAuth, async (request, response, next) => {
   try {
     if (!mongoose.isValidObjectId(request.params.id)) {
       return response.status(400).json({ error: 'Invalid inspection ID' })
     }
-    const inspection = await Inspection.findById(request.params.id).lean()
+    const inspection = await Inspection.findOne({
+      _id: request.params.id,
+      ...(request.user.role === 'admin' ? {} : { createdBy: request.user._id }),
+    }).lean()
     if (!inspection) return response.status(404).json({ error: 'Inspection not found' })
     response.json({ data: inspection })
   } catch (error) {
@@ -68,7 +73,7 @@ router.get('/:id', async (request, response, next) => {
   }
 })
 
-router.delete('/bulk', async (request, response, next) => {
+router.delete('/bulk', requireAuth, async (request, response, next) => {
   try {
     const ids = Array.isArray(request.body?.ids) ? [...new Set(request.body.ids)] : []
     if (!ids.length) return response.status(400).json({ error: 'At least one inspection ID is required' })
@@ -76,7 +81,10 @@ router.delete('/bulk', async (request, response, next) => {
       return response.status(400).json({ error: 'One or more inspection IDs are invalid' })
     }
 
-    const inspections = await Inspection.find({ _id: { $in: ids } })
+    const inspections = await Inspection.find({
+      _id: { $in: ids },
+      ...(request.user.role === 'admin' ? {} : { createdBy: request.user._id }),
+    })
     for (const inspection of inspections) {
       await deleteInspectionRecord(inspection)
     }
@@ -87,13 +95,16 @@ router.delete('/bulk', async (request, response, next) => {
   }
 })
 
-router.delete('/:id', async (request, response, next) => {
+router.delete('/:id', requireAuth, async (request, response, next) => {
   try {
     if (!mongoose.isValidObjectId(request.params.id)) {
       return response.status(400).json({ error: 'Invalid inspection ID' })
     }
 
-    const inspection = await Inspection.findById(request.params.id)
+    const inspection = await Inspection.findOne({
+      _id: request.params.id,
+      ...(request.user.role === 'admin' ? {} : { createdBy: request.user._id }),
+    })
     if (!inspection) return response.status(404).json({ error: 'Inspection not found' })
 
     await deleteInspectionRecord(inspection)
@@ -103,7 +114,7 @@ router.delete('/:id', async (request, response, next) => {
   }
 })
 
-router.post('/process', upload.single('image'), async (request, response, next) => {
+router.post('/process', requireAuth, upload.single('image'), async (request, response, next) => {
   let inspection
   try {
     const telemetry = typeof request.body.telemetry === 'string' ? JSON.parse(request.body.telemetry) : request.body.telemetry || {}
@@ -217,6 +228,7 @@ router.post('/process', upload.single('image'), async (request, response, next) 
       : null
 
     inspection = await Inspection.create({
+      createdBy: request.user._id,
       part: detectedPart || 'Brake pad',
       defectType: defect.type || 'Unclassified',
       severity: defect.severity || 'Medium',

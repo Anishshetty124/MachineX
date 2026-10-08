@@ -1,8 +1,7 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Activity, Cpu, CheckCircle2, AlertOctagon, Wrench, ShieldAlert, Target, Thermometer, Gauge, Vibrate, ClipboardCheck } from 'lucide-react'
-
-const apiBase = import.meta.env.VITE_API_URL ?? 'http://localhost:5000'
+import { authFetch } from '../auth'
 
 export default function DiagnosticsPage() {
   const { id } = useParams()
@@ -12,42 +11,43 @@ export default function DiagnosticsPage() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (!id) {
-      setError('No inspection ID provided.')
-      setLoading(false)
-      return
-    }
+    const timer = window.setTimeout(() => {
+      if (!id) {
+        setError('No inspection ID provided.')
+        setLoading(false)
+        return
+      }
 
-    const cached = window.localStorage.getItem('autoqual-latest-analysis')
-    let cachedData = null
-    try { cachedData = cached ? JSON.parse(cached) : null } catch (e) { cachedData = null }
+      const cached = window.localStorage.getItem('autoqual-latest-analysis')
+      let cachedData = null
+      try { cachedData = cached ? JSON.parse(cached) : null } catch { cachedData = null }
 
-    if (id.startsWith('fallback-') || id === 'latest') {
-      if (cachedData) {
+      if ((id.startsWith('fallback-') || id === 'latest') && cachedData) {
         setInspection(cachedData)
         setLoading(false)
         return
       }
-    }
 
-    fetch(`${apiBase}/api/inspections/${id}`)
-      .then((res) => {
-        if (!res.ok) throw new Error(`Inspection record '${id}' not found in MongoDB.`)
-        return res.json()
-      })
-      .then((payload) => {
-        setInspection(payload.data || payload)
-        setLoading(false)
-      })
-      .catch((err) => {
-        if (cachedData) {
-          setInspection(cachedData)
-          setError('Loaded latest inspection from session storage.')
-        } else {
-          setError(err.message)
-        }
-        setLoading(false)
-      })
+      authFetch(`/api/inspections/${id}`)
+        .then((res) => {
+          if (!res.ok) throw new Error(`Inspection record '${id}' not found in MongoDB.`)
+          return res.json()
+        })
+        .then((payload) => {
+          setInspection(payload.data || payload)
+          setLoading(false)
+        })
+        .catch((requestError) => {
+          if (cachedData) {
+            setInspection(cachedData)
+            setError('Loaded latest inspection from session storage.')
+          } else {
+            setError(requestError.message)
+          }
+          setLoading(false)
+        })
+    }, 0)
+    return () => window.clearTimeout(timer)
   }, [id])
 
   if (loading) {
@@ -56,6 +56,10 @@ export default function DiagnosticsPage() {
         <h2>Loading Quality Diagnostics...</h2>
       </div>
     )
+  }
+
+  if (error && !inspection) {
+    return <div className="history-error" style={{ margin: '4rem auto', maxWidth: '700px' }}>{error}</div>
   }
 
   const rootCause = inspection?.rootCause || {}
@@ -90,6 +94,7 @@ export default function DiagnosticsPage() {
 
   return (
     <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '2rem 1.5rem', color: '#f8fafc' }}>
+      {error && <div className="history-error">{error}</div>}
       <button 
         onClick={() => navigate(-1)} 
         style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', background: 'none', border: 'none', color: '#38bdf8', cursor: 'pointer', marginBottom: '1.5rem', fontSize: '14px', fontWeight: 500 }}

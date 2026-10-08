@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CalendarDays, CheckCircle2, CheckSquare, Clock3, Filter, RefreshCw, Search, Square, Trash2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-
-const apiBase = import.meta.env.VITE_API_URL ?? 'http://localhost:5000'
+import { authFetch } from '../auth'
 
 function formatDate(value) {
   if (!value) return 'Unknown date'
@@ -28,7 +27,7 @@ export default function HistoryPage() {
     setLoading(true)
     setError('')
     try {
-      const response = await fetch(`${apiBase}/api/inspections`)
+      const response = await authFetch('/api/inspections')
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.error || 'Unable to load inspection history')
       setInspections(payload.data || [])
@@ -59,7 +58,7 @@ export default function HistoryPage() {
     setDeletingId(inspection._id)
     setError('')
     try {
-      const response = await fetch(`${apiBase}/api/inspections/${inspection._id}`, { method: 'DELETE' })
+      const response = await authFetch(`/api/inspections/${inspection._id}`, { method: 'DELETE' })
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.error || 'Unable to delete inspection')
       setInspections((current) => current.filter((item) => item._id !== inspection._id))
@@ -101,7 +100,7 @@ export default function HistoryPage() {
     setBulkDeleting(true)
     setError('')
     try {
-      const response = await fetch(`${apiBase}/api/inspections/bulk`, {
+      const response = await authFetch('/api/inspections/bulk', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids }),
