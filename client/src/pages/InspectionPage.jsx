@@ -1,4 +1,4 @@
-import { Camera, Check, ChevronDown, FileImage, LoaderCircle, Upload, UploadCloud, Video, X } from 'lucide-react'
+import { Camera, Check, ChevronDown, FileImage, Pencil, Trash2, Upload, UploadCloud, Video, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import BrakePad3D from '../components/BrakePad3D'
 
@@ -28,9 +28,18 @@ const apiBase = import.meta.env.VITE_API_URL ?? 'http://localhost:5000'
 export default function InspectionPage({ demoRequested = false }) {
   const [form, setForm] = useState(demoRequested ? sampleData : initialData)
   const [imageUrl, setImageUrl] = useState(null)
+  const [modelCatalog, setModelCatalog] = useState([])
+  const [catalogStatus, setCatalogStatus] = useState('loading')
+  const [selectedModelId, setSelectedModelId] = useState('')
+  const [editModelName, setEditModelName] = useState('')
   const [modelAsset, setModelAsset] = useState(null)
-  const [modelStatus, setModelStatus] = useState('loading')
+  const [modelStatus, setModelStatus] = useState('idle')
   const [exploded, setExploded] = useState(false)
+  const [analysisStatus, setAnalysisStatus] = useState('idle')
+  const [defectBox, setDefectBox] = useState(null)
+  const [modelColor, setModelColor] = useState('#c5cbd0')
+  const [backgroundColor, setBackgroundColor] = useState('#101a20')
+  const [solidColor, setSolidColor] = useState(true)
   const [cameraOpen, setCameraOpen] = useState(false)
   const [modelError, setModelError] = useState('')
   const [adminModel, setAdminModel] = useState(null)
@@ -43,40 +52,94 @@ export default function InspectionPage({ demoRequested = false }) {
   useEffect(() => {
     let cancelled = false
 
-    fetch(`${import.meta.env.VITE_API_URL ?? 'http://localhost:5000'}/api/models?partType=${encodeURIComponent(form.part)}`)
+    fetch(`${apiBase}/api/models`)
       .then((response) => {
         if (!response.ok) throw new Error('Model service unavailable')
         return response.json()
       })
       .then(({ data }) => {
         if (cancelled) return
-        const selectedModel = data?.[0]
-        if (!selectedModel) {
-          setModelStatus('ready')
-          setModelError('No stored model found; showing inspection preview')
-          return
-        }
-        setModelAsset({ ...selectedModel, assetUrl: selectedModel.assetUrl?.startsWith('/') ? `${apiBase}${selectedModel.assetUrl}` : selectedModel.assetUrl })
-        setModelStatus('ready')
+        setModelCatalog(data || [])
+        setCatalogStatus('ready')
       })
       .catch(() => {
         if (!cancelled) {
-          setModelStatus('error')
+          setCatalogStatus('error')
           setModelError('Model service unavailable. Start the API or upload a model first.')
         }
       })
 
     return () => { cancelled = true }
-  }, [form.part])
+  }, [])
 
   const updateField = (event) => {
     const { name, value } = event.target
-    if (name === 'part') {
-      setModelStatus('loading')
-      setModelError('')
-      setModelAsset(null)
-    }
     setForm((current) => ({ ...current, [name]: value }))
+  }
+
+  const selectModel = (event) => {
+    const modelId = event.target.value
+    const model = modelCatalog.find((item) => item._id === modelId)
+    setSelectedModelId(modelId)
+    setEditModelName(model?.name || '')
+    setModelAsset(null)
+    setModelStatus('idle')
+    setDefectBox(null)
+    setAnalysisStatus('idle')
+    if (model) setForm((current) => ({ ...current, part: model.partType }))
+  }
+
+  const showSelectedModel = () => {
+    const selectedModel = modelCatalog.find((item) => item._id === selectedModelId)
+    if (!selectedModel) {
+      setModelError('Select an uploaded model first.')
+      return
+    }
+    setModelAsset({ ...selectedModel, assetUrl: selectedModel.assetUrl?.startsWith('/') ? `${apiBase}${selectedModel.assetUrl}` : selectedModel.assetUrl })
+    setModelStatus('ready')
+    setModelError('')
+    setDefectBox(null)
+    setAnalysisStatus('idle')
+  }
+
+  const updateModelName = async () => {
+    if (!selectedModelId || !editModelName.trim()) return
+    const response = await fetch(`${apiBase}/api/models/${selectedModelId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...(adminKey ? { 'x-admin-key': adminKey } : {}) }, body: JSON.stringify({ name: editModelName.trim() }) })
+    const result = await response.json()
+    if (!response.ok) return setModelError(result.error || 'Model name update failed')
+    setModelCatalog((current) => current.map((model) => model._id === selectedModelId ? result.data : model))
+    setModelError('Model name updated.')
+  }
+
+  const deleteSelectedModel = async () => {
+    if (!selectedModelId || !window.confirm('Delete this 3D model from MongoDB?')) return
+    const response = await fetch(`${apiBase}/api/models/${selectedModelId}`, { method: 'DELETE', headers: adminKey ? { 'x-admin-key': adminKey } : {} })
+    const result = await response.json()
+    if (!response.ok) return setModelError(result.error || 'Model deletion failed')
+    setModelCatalog((current) => current.filter((model) => model._id !== selectedModelId))
+    setSelectedModelId('')
+    setEditModelName('')
+    setModelAsset(null)
+    setModelStatus('idle')
+    setDefectBox(null)
+    setModelError('Model deleted.')
+  }
+
+  const analyzeEvidence = async () => {
+    if (!imageUrl || !modelAsset) return
+    setAnalysisStatus('analyzing')
+    try {
+      const response = await fetch(`${import.meta.env.VITE_AI_API_URL ?? 'http://localhost:8000'}/analyze`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ inspection_id: form.vin || null, measurements: { temperature: Number(form.temperature) || 0, vibration: Number(form.vibration) || 0 } }) })
+      if (!response.ok) throw new Error('AI analysis service unavailable')
+      const result = await response.json()
+      const box = result.defects?.[0]?.box || result.defect2DBox
+      setDefectBox(box || null)
+      setAnalysisStatus('complete')
+      setModelError(box ? '' : 'AI analysis completed; no defect location was returned yet.')
+    } catch (error) {
+      setAnalysisStatus('error')
+      setModelError(error.message)
+    }
   }
 
   const loadEvidence = (file) => {
@@ -106,11 +169,14 @@ export default function InspectionPage({ demoRequested = false }) {
       const response = await fetch(`${apiBase}/api/models/upload`, { method: 'POST', headers: adminKey ? { 'x-admin-key': adminKey } : {}, body: payload })
       const result = await response.json()
       if (!response.ok) throw new Error(result.error || 'Model upload failed')
-      setModelAsset({ ...result.data, assetUrl: `${apiBase}${result.data.assetUrl}` })
-      setModelStatus('ready')
-      setModelError('')
+      setModelCatalog((current) => [result.data, ...current])
+      setSelectedModelId(result.data._id)
+      setModelAsset(null)
+      setModelStatus('idle')
+      setModelError('Model uploaded. Click Show model to load it.')
       setUploadStatus('success')
-      setUploadMessage('Model converted and loaded from MongoDB.')
+      setUploadMessage('Model converted and saved. Refreshing model catalog...')
+      window.setTimeout(() => window.location.reload(), 500)
     } catch (error) {
       setUploadStatus('error')
       setUploadMessage(error.message)
@@ -120,7 +186,7 @@ export default function InspectionPage({ demoRequested = false }) {
   return <section className="inspection-page">
     <div className="inspection-heading">
       <div><p className="eyebrow">Step 01 / evidence intake</p><h1>Start a quality inspection</h1><p className="muted">Upload or capture evidence. We will map the detected defect onto the live 3D part model.</p></div>
-      <div className="model-status"><span className={modelStatus === 'ready' && modelAsset ? 'status-dot live' : 'status-dot'} />{modelStatus === 'ready' && modelAsset ? '3D model from database' : modelStatus === 'error' ? 'Model service offline' : 'Fetching model metadata'}</div>
+      <div className="model-status"><span className={modelStatus === 'ready' && modelAsset ? 'status-dot live' : 'status-dot'} />{modelStatus === 'ready' && modelAsset ? '3D model active' : catalogStatus === 'loading' ? 'Loading model catalog' : 'Select a model to begin'}</div>
     </div>
 
     <div className="inspection-layout">
@@ -136,6 +202,8 @@ export default function InspectionPage({ demoRequested = false }) {
 
         <div className="panel details-panel">
           <div className="panel-heading"><div><p className="eyebrow">Inspection context</p><h2>Part and sensor data</h2></div><Video size={18} className="panel-icon" /></div>
+          <div className="model-select-row"><label>Available 3D part<select value={selectedModelId} onChange={selectModel} disabled={catalogStatus !== 'ready'}><option value="">{catalogStatus === 'loading' ? 'Loading uploaded models...' : catalogStatus === 'error' ? 'Model catalog unavailable' : modelCatalog.length ? 'Select a model' : 'No models uploaded'}</option>{modelCatalog.map((model) => <option key={model._id} value={model._id}>{model.name}</option>)}</select><ChevronDown size={14} /></label><button type="button" className="primary-button show-model-button" onClick={showSelectedModel} disabled={!selectedModelId}>Show model</button></div>
+          {selectedModelId && <div className="model-manage-row"><input className="text-input" value={editModelName} onChange={(event) => setEditModelName(event.target.value)} aria-label="Selected model name" /><button type="button" className="secondary-button" onClick={updateModelName}><Pencil size={14} />Save name</button><button type="button" className="danger-button" onClick={deleteSelectedModel}><Trash2 size={14} />Delete</button></div>}
           <div className="form-grid">
             <label>Part to inspect<select name="part" value={form.part} onChange={updateField}><option>Brake pad</option><option>Brake disc</option><option>Caliper</option><option>Wheel hub</option></select><ChevronDown size={14} /></label>
             <label>Defect type<select name="defectType" value={form.defectType} onChange={updateField}><option>Surface crack</option><option>Uneven wear</option><option>Heat spot</option><option>Corrosion</option></select><ChevronDown size={14} /></label>
@@ -151,9 +219,9 @@ export default function InspectionPage({ demoRequested = false }) {
 
         <form className="panel model-upload-panel" onSubmit={uploadModel}>
           <div className="panel-heading"><div><p className="eyebrow">Admin workspace</p><h2>Upload 3D part model</h2></div><UploadCloud size={18} className="panel-icon" /></div>
-          <p className="muted upload-note">Upload a single GLB, or a self-contained GLTF. Extra .bin and texture files are optional unless the GLTF references them.</p>
+          <p className="muted upload-note">Upload the 3D model GLTF and its .bin geometry file. Material textures are optional; inspection photos are uploaded separately above.</p>
           <label className="file-picker">{adminModel ? adminModel.name : 'Choose .gltf or .glb model'}<input type="file" accept=".gltf,.glb,model/gltf+json,model/gltf-binary" onChange={(event) => setAdminModel(event.target.files?.[0] || null)} /></label>
-          <label className="file-picker secondary-picker">{modelResources.length ? `${modelResources.length} resource file(s) selected` : 'Add referenced .bin/textures if needed'}<input type="file" multiple accept=".bin,.png,.jpg,.jpeg,.webp" onChange={(event) => setModelResources(event.target.files || [])} /></label>
+          <label className="file-picker secondary-picker">{modelResources.length ? `${modelResources.length} .bin resource selected` : 'Choose .bin geometry file'}<input type="file" accept=".bin,application/octet-stream" onChange={(event) => setModelResources(event.target.files || [])} /></label>
           <input className="text-input" value={modelName} onChange={(event) => setModelName(event.target.value)} placeholder="Model name" />
           <input className="text-input" type="password" value={adminKey} onChange={(event) => setAdminKey(event.target.value)} placeholder="Admin upload key (if configured)" />
           <button className="primary-button upload-submit" type="submit" disabled={uploadStatus === 'uploading'}><UploadCloud size={15} />{uploadStatus === 'uploading' ? 'Converting and uploading...' : 'Upload model to MongoDB'}</button>
@@ -162,8 +230,10 @@ export default function InspectionPage({ demoRequested = false }) {
       </div>
 
       <div className="panel model-panel">
-        <div className="panel-heading"><div><p className="eyebrow">Spatial inspection</p><h2>{form.part} / live model</h2></div><button className={exploded ? 'secondary-button active' : 'secondary-button'} onClick={() => setExploded((value) => !value)}>{exploded ? 'Collapse assembly' : 'Explode assembly'}</button></div>
-        <div className="model-stage">{modelAsset ? <BrakePad3D modelUrl={modelAsset.assetUrl} defect2DBox={{ x: 0.6, y: 0.3 }} defectType={form.defectType} severity={form.severity} exploded={exploded} /> : <div className="model-empty"><LoaderCircle size={24} className={modelStatus === 'loading' ? 'spin' : ''} /><strong>{modelStatus === 'loading' ? 'Loading model metadata' : 'No usable model loaded'}</strong><span>{modelError || 'An administrator must upload a GLTF or GLB model before inspection.'}</span></div>}{modelStatus === 'loading' && <div className="model-overlay"><LoaderCircle size={20} className="spin" />Fetching part model from database</div>}</div>
+      <div className="panel-heading"><div><p className="eyebrow">Spatial inspection</p><h2>{form.part} / live model</h2></div><button className={exploded ? 'secondary-button active' : 'secondary-button'} onClick={() => setExploded((value) => !value)}>{exploded ? 'Collapse assembly' : 'Explode assembly'}</button></div>
+      <div className="appearance-controls"><label>Model color<input type="color" value={modelColor} onChange={(event) => setModelColor(event.target.value)} /></label><label>Background<input type="color" value={backgroundColor} onChange={(event) => setBackgroundColor(event.target.value)} /></label><label className="solid-toggle"><input type="checkbox" checked={solidColor} onChange={(event) => setSolidColor(event.target.checked)} /> Solid color</label></div>
+      <div className="model-stage">{modelAsset ? <BrakePad3D modelUrl={modelAsset.assetUrl} defect2DBox={defectBox || { x: 0.5, y: 0.5 }} defectType={form.defectType} severity={form.severity} exploded={exploded} showDefect={Boolean(defectBox)} modelColor={modelColor} solidColor={solidColor} backgroundColor={backgroundColor} /> : <div className="model-empty"><strong>Select an uploaded part model</strong><span>{modelError || 'Choose a model from the catalog, then click Show model.'}</span></div>}{modelAsset && !defectBox && <div className="model-stage-hint">Upload evidence, then run AI analysis to map issues here.</div>}</div>
+        <div className="model-footer"><span><i className={defectBox ? 'legend-dot defect' : 'legend-dot'} />{defectBox ? 'AI defect location mapped from 2D' : 'Defect marker pending AI analysis'}</span>{modelAsset && <button type="button" className="secondary-button" onClick={analyzeEvidence} disabled={!imageUrl || analysisStatus === 'analyzing'}>{analysisStatus === 'analyzing' ? 'Analyzing image...' : 'Analyze with AI'}</button>}</div>
         <div className="model-footer"><span><i className="legend-dot defect" />Defect location mapped from 2D</span><span>Drag to rotate / scroll to zoom</span></div>
       </div>
     </div>

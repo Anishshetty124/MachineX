@@ -6,6 +6,8 @@ const { GridFSBucket, ObjectId } = mongoose.mongo
 const multer = require('multer')
 const { gltfToGlb } = require('gltf-pipeline')
 
+const FALLBACK_TEXTURE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 100 * 1024 * 1024, files: 21 },
@@ -44,19 +46,23 @@ async function normalizeToGlb(modelFile, resourceFiles = []) {
     throw error
   }
   const resources = new Map(resourceFiles.map((file) => [path.basename(file.originalname), file]))
-  const embedResources = (items = []) => items.forEach((item) => {
+  const embedResources = (items = [], required) => items.forEach((item) => {
     if (!item.uri || item.uri.startsWith('data:')) return
     const resource = resources.get(path.basename(item.uri))
     if (!resource) {
-      const error = new Error(`Missing GLTF resource: ${item.uri}. Select this file in the resource upload field.`)
-      error.statusCode = 400
-      throw error
+      if (required) {
+        const error = new Error(`Missing GLTF resource: ${item.uri}. Select the .bin file in the model upload field.`)
+        error.statusCode = 400
+        throw error
+      }
+      item.uri = FALLBACK_TEXTURE
+      return
     }
     item.uri = dataUri(resource.buffer, resource)
   })
 
-  embedResources(document.buffers)
-  embedResources(document.images)
+  embedResources(document.buffers, true)
+  embedResources(document.images, false)
   const result = await gltfToGlb(document)
   return result.glb
 }
@@ -122,6 +128,39 @@ router.get('/:id/file', async (request, response, next) => {
     if (!model?.gridFsId || !bucket) return response.status(404).end()
     response.type('model/gltf-binary')
     bucket.openDownloadStream(new ObjectId(model.gridFsId)).on('error', next).pipe(response)
+  } catch (error) {
+    next(error)
+  }
+})
+
+router.patch('/:id', requireAdminUpload, async (request, response, next) => {
+  try {
+    if (!ObjectId.isValid(request.params.id)) return response.status(400).json({ error: 'Invalid model id' })
+    const name = String(request.body.name || '').trim()
+    if (!name) return response.status(400).json({ error: 'Model name is required' })
+    const model = await PartModel.findByIdAndUpdate(request.params.id, { name }, { new: true, runValidators: true }).lean()
+    if (!model) return response.status(404).json({ error: 'Model not found' })
+    response.json({ data: model })
+  } catch (error) {
+    next(error)
+  }
+})
+
+router.delete('/:id', requireAdminUpload, async (request, response, next) => {
+  try {
+    if (!ObjectId.isValid(request.params.id)) return response.status(400).json({ error: 'Invalid model id' })
+    const model = await PartModel.findById(request.params.id)
+    if (!model) return response.status(404).json({ error: 'Model not found' })
+    const bucket = getBucket()
+    if (bucket && model.gridFsId) {
+      try {
+        await bucket.delete(new ObjectId(model.gridFsId))
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error
+      }
+    }
+    await model.deleteOne()
+    response.json({ data: { id: request.params.id, deleted: true } })
   } catch (error) {
     next(error)
   }

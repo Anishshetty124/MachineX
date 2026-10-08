@@ -1,6 +1,6 @@
 import { Bounds, Html, OrbitControls, useGLTF } from '@react-three/drei'
 import { Canvas, useFrame } from '@react-three/fiber'
-import { Component, Suspense, useRef } from 'react'
+import { Component, Suspense, useEffect, useRef } from 'react'
 import { ZoomIn, ZoomOut } from 'lucide-react'
 import { map2DTo3DSurface } from '../utils/coordinateMapper'
 
@@ -85,13 +85,27 @@ function DefectMarker({ defect2DBox, defectType, severity }) {
   )
 }
 
-function RemoteModel({ url, exploded }) {
+function RemoteModel({ url, exploded, modelColor, solidColor }) {
   const { scene } = useGLTF(url)
+  useEffect(() => {
+    scene.traverse((object) => {
+      if (!object.isMesh || !object.material) return
+      const materials = Array.isArray(object.material) ? object.material : [object.material]
+      materials.forEach((material) => {
+        if (!material.color) return
+        material.color.set(modelColor)
+        if (solidColor && material.map) {
+          material.map = null
+          material.needsUpdate = true
+        }
+      })
+    })
+  }, [modelColor, scene, solidColor])
   return <primitive object={scene} scale={1.8} position={[0, exploded ? 0.45 : 0, 0]} />
 }
 
-function DatabaseModel({ url, exploded }) {
-  return <RemoteModel url={url} exploded={exploded} />
+function DatabaseModel({ url, exploded, modelColor, solidColor }) {
+  return <RemoteModel url={url} exploded={exploded} modelColor={modelColor} solidColor={solidColor} />
 }
 
 class ModelErrorBoundary extends Component {
@@ -106,7 +120,7 @@ class ModelErrorBoundary extends Component {
   }
 }
 
-function BrakePadCanvas({ modelUrl, defect2DBox, defectType, severity, exploded }) {
+function BrakePadCanvas({ modelUrl, defect2DBox, defectType, severity, exploded, showDefect, modelColor, solidColor, backgroundColor }) {
   const controlsRef = useRef()
   const zoom = (direction) => {
     if (!controlsRef.current) return
@@ -117,14 +131,14 @@ function BrakePadCanvas({ modelUrl, defect2DBox, defectType, severity, exploded 
   return (
     <>
       <Canvas camera={{ position: [4.2, 3.2, 5.1], fov: 42 }} dpr={[1, 2]}>
-        <color attach="background" args={['#101a20']} />
+        <color attach="background" args={[backgroundColor]} />
         <ambientLight intensity={1.2} />
         <directionalLight position={[4, 5, 6]} intensity={2.4} />
         <directionalLight position={[-4, -2, -3]} intensity={0.8} />
         <Bounds fit clip observe margin={1.35}>
           <group rotation={[0.35, -0.35, 0]}>
-            {modelUrl ? <Suspense fallback={null}><DatabaseModel url={modelUrl} exploded={exploded} /></Suspense> : <><Rotor exploded={exploded} /><BrakePad exploded={exploded} /><Caliper exploded={exploded} /></>}
-            <DefectMarker defect2DBox={defect2DBox} defectType={defectType} severity={severity} />
+            {modelUrl ? <Suspense fallback={null}><DatabaseModel url={modelUrl} exploded={exploded} modelColor={modelColor} solidColor={solidColor} /></Suspense> : <><Rotor exploded={exploded} /><BrakePad exploded={exploded} /><Caliper exploded={exploded} /></>}
+            {showDefect && <DefectMarker defect2DBox={defect2DBox} defectType={defectType} severity={severity} />}
           </group>
         </Bounds>
         <OrbitControls ref={controlsRef} makeDefault enableDamping enableZoom minDistance={0.5} maxDistance={30} />
