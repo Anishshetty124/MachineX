@@ -16,6 +16,19 @@ function getImageBucket() {
   return new GridFSBucket(mongoose.connection.db, { bucketName: 'inspectionImages' })
 }
 
+async function deleteInspectionRecord(inspection) {
+  const imageBucket = getImageBucket()
+  if (imageBucket && inspection.imageGridFsId) {
+    try {
+      await imageBucket.delete(new ObjectId(inspection.imageGridFsId))
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error
+    }
+  }
+
+  await Inspection.deleteOne({ _id: inspection._id })
+}
+
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
@@ -30,6 +43,18 @@ function modelSearchTokens(part) {
   )]
 }
 
+router.get('/', async (_request, response, next) => {
+  try {
+    const inspections = await Inspection.find({})
+      .sort({ createdAt: -1 })
+      .select('-__v')
+      .lean()
+    response.json({ data: inspections })
+  } catch (error) {
+    next(error)
+  }
+})
+
 router.get('/:id', async (request, response, next) => {
   try {
     if (!mongoose.isValidObjectId(request.params.id)) {
@@ -38,6 +63,41 @@ router.get('/:id', async (request, response, next) => {
     const inspection = await Inspection.findById(request.params.id).lean()
     if (!inspection) return response.status(404).json({ error: 'Inspection not found' })
     response.json({ data: inspection })
+  } catch (error) {
+    next(error)
+  }
+})
+
+router.delete('/bulk', async (request, response, next) => {
+  try {
+    const ids = Array.isArray(request.body?.ids) ? [...new Set(request.body.ids)] : []
+    if (!ids.length) return response.status(400).json({ error: 'At least one inspection ID is required' })
+    if (ids.some((id) => !mongoose.isValidObjectId(id))) {
+      return response.status(400).json({ error: 'One or more inspection IDs are invalid' })
+    }
+
+    const inspections = await Inspection.find({ _id: { $in: ids } })
+    for (const inspection of inspections) {
+      await deleteInspectionRecord(inspection)
+    }
+
+    response.json({ deletedCount: inspections.length, deletedIds: inspections.map((inspection) => inspection._id) })
+  } catch (error) {
+    next(error)
+  }
+})
+
+router.delete('/:id', async (request, response, next) => {
+  try {
+    if (!mongoose.isValidObjectId(request.params.id)) {
+      return response.status(400).json({ error: 'Invalid inspection ID' })
+    }
+
+    const inspection = await Inspection.findById(request.params.id)
+    if (!inspection) return response.status(404).json({ error: 'Inspection not found' })
+
+    await deleteInspectionRecord(inspection)
+    response.json({ deletedId: inspection._id })
   } catch (error) {
     next(error)
   }

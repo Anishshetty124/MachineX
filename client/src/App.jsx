@@ -1,10 +1,13 @@
 import { createContext, useEffect, useState } from 'react'
 import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
-import { Bell, CarFront, CircleHelp, LayoutDashboard, Menu, Activity, X } from 'lucide-react'
+import { Bell, Bot, CarFront, CircleHelp, LayoutDashboard, Menu, Activity, Boxes, History, X } from 'lucide-react'
 import { io } from 'socket.io-client'
 import InspectionPage from './pages/InspectionPage'
 import DiagnosticsPage from './pages/DiagnosticsPage'
+import ChatbotPage from './pages/ChatbotPage'
+import PartsAvailabilityPage from './pages/PartsAvailabilityPage'
+import HistoryPage from './pages/HistoryPage'
 import UserGuideModal from './components/UserGuideModal'
 import './App.css'
 
@@ -49,6 +52,9 @@ function App() {
   const navigation = [
     ['/', 'Overview', LayoutDashboard],
     ['/diagnostics/latest', 'Diagnostics', Activity],
+    ['/chatbot', 'Assistant', Bot],
+    ['/parts', 'Parts & availability', Boxes],
+    ['/history', 'History', History],
   ]
 
   const openGuide = () => {
@@ -122,6 +128,9 @@ function App() {
                 <Route path="/" element={<Dashboard demoKey={demoKey} />} />
                 <Route path="/diagnostics" element={<DiagnosticsPage />} />
                 <Route path="/diagnostics/:id" element={<DiagnosticsPage />} />
+                <Route path="/chatbot" element={<ChatbotPage />} />
+                <Route path="/parts" element={<PartsAvailabilityPage />} />
+                <Route path="/history" element={<HistoryPage />} />
                 <Route path="/control" element={<ControlPlaceholder />} />
               </Routes>
             </main>
