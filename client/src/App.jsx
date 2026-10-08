@@ -1,13 +1,14 @@
 import { createContext, useEffect, useState } from 'react'
 import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
-import { Bell, CarFront, CircleHelp, LayoutDashboard, Menu, X } from 'lucide-react'
+import { Bell, CarFront, CircleHelp, LayoutDashboard, Menu, Activity, X } from 'lucide-react'
 import { io } from 'socket.io-client'
 import InspectionPage from './pages/InspectionPage'
+import DiagnosticsPage from './pages/DiagnosticsPage'
 import UserGuideModal from './components/UserGuideModal'
 import './App.css'
 
-const SocketContext = createContext(null)
+export const SocketContext = createContext(null)
 
 function SocketProvider({ children }) {
   const [socket, setSocket] = useState(null)
@@ -24,8 +25,19 @@ function SocketProvider({ children }) {
 }
 
 function Dashboard({ demoKey }) {
+  return <InspectionPage key={demoKey} demoRequested={demoKey > 0} />
+}
+
+function ControlPlaceholder() {
   return (
-    <InspectionPage key={demoKey} demoRequested={demoKey > 0} />
+    <div className="empty-state">
+      <p className="eyebrow">Step 03 / execution</p>
+      <h1>AI control and work orders</h1>
+      <p className="muted">Corrective-action execution will be connected here.</p>
+      <NavLink className="secondary-button" to="/diagnostics/latest">
+        Back to diagnostics
+      </NavLink>
+    </div>
   )
 }
 
@@ -33,11 +45,103 @@ function App() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [guideOpen, setGuideOpen] = useState(() => !window.localStorage.getItem('autoqual-guide-seen'))
   const [demoKey, setDemoKey] = useState(0)
-  const navigation = [['/', 'Overview', LayoutDashboard]]
-  const openGuide = () => { setGuideOpen(true); window.localStorage.setItem('autoqual-guide-seen', 'true') }
+
+  const navigation = [
+    ['/', 'Overview', LayoutDashboard],
+    ['/diagnostics/latest', 'Diagnostics', Activity],
+  ]
+
+  const openGuide = () => {
+    setGuideOpen(true)
+    window.localStorage.setItem('autoqual-guide-seen', 'true')
+  }
 
   return (
-    <BrowserRouter><SocketProvider><div className="app-shell"><aside className={drawerOpen ? 'sidebar open' : 'sidebar'}><div className="brand"><CarFront size={24} /><span>AUTO-QUAL <b>AI</b></span><button className="icon-button mobile-only" onClick={() => setDrawerOpen(false)} aria-label="Close menu"><X size={20} /></button></div><p className="nav-label">Workspace</p><nav>{navigation.map(([path, label, Icon]) => <NavLink key={path} to={path} onClick={() => setDrawerOpen(false)} className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}><Icon size={18} />{label}</NavLink>)}</nav><div className="sidebar-footer"><div className="operator"><span>OP</span><div><strong>Operator</strong><small>Quality control</small></div></div></div></aside><div className="main-column"><header className="topbar"><button className="icon-button mobile-menu" onClick={() => setDrawerOpen(true)} aria-label="Open menu"><Menu size={22} /></button><span className="topbar-title">Plant 01 / Main floor</span><div className="topbar-actions"><button className="guide-button" onClick={openGuide}><CircleHelp size={16} />How to use</button><button className="icon-button" aria-label="Notifications"><Bell size={19} /></button><span className="avatar">OP</span></div></header><main><AnimatePresence>{drawerOpen && <div className="scrim" onClick={() => setDrawerOpen(false)} />}</AnimatePresence><Routes><Route path="/" element={<Dashboard demoKey={demoKey} />} /></Routes></main></div><UserGuideModal key={guideOpen ? 'guide-open' : 'guide-closed'} open={guideOpen} onClose={() => { setGuideOpen(false); window.localStorage.setItem('autoqual-guide-seen', 'true') }} onDemo={() => { setDemoKey((value) => value + 1); window.localStorage.setItem('autoqual-guide-seen', 'true') }} /></div></SocketProvider></BrowserRouter>
+    <BrowserRouter>
+      <SocketProvider>
+        <div className="app-shell">
+          <aside className={drawerOpen ? 'sidebar open' : 'sidebar'}>
+            <div className="brand">
+              <CarFront size={24} />
+              <span>
+                MachineX
+              </span>
+              <button className="icon-button mobile-only" onClick={() => setDrawerOpen(false)} aria-label="Close menu">
+                <X size={20} />
+              </button>
+            </div>
+            <p className="nav-label">Workspace</p>
+            <nav>
+              {navigation.map(([path, label, Icon]) => (
+                <NavLink
+                  key={path}
+                  to={path}
+                  onClick={() => setDrawerOpen(false)}
+                  className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
+                >
+                  <Icon size={18} />
+                  {label}
+                </NavLink>
+              ))}
+            </nav>
+            <div className="sidebar-footer">
+              <div className="operator">
+                <span>OP</span>
+                <div>
+                  <strong>Operator</strong>
+                  <small>Quality control</small>
+                </div>
+              </div>
+            </div>
+          </aside>
+
+          <div className="main-column">
+            <header className="topbar">
+              <button className="icon-button mobile-menu" onClick={() => setDrawerOpen(true)} aria-label="Open menu">
+                <Menu size={22} />
+              </button>
+              <span className="topbar-title">Plant 01 / Main floor</span>
+              <div className="topbar-actions">
+                <button className="guide-button" onClick={openGuide}>
+                  <CircleHelp size={16} />
+                  How to use
+                </button>
+                <button className="icon-button" aria-label="Notifications">
+                  <Bell size={19} />
+                </button>
+                <span className="avatar">OP</span>
+              </div>
+            </header>
+
+            <main>
+              <AnimatePresence>
+                {drawerOpen && <div className="scrim" onClick={() => setDrawerOpen(false)} />}
+              </AnimatePresence>
+
+              <Routes>
+                <Route path="/" element={<Dashboard demoKey={demoKey} />} />
+                <Route path="/diagnostics" element={<DiagnosticsPage />} />
+                <Route path="/diagnostics/:id" element={<DiagnosticsPage />} />
+                <Route path="/control" element={<ControlPlaceholder />} />
+              </Routes>
+            </main>
+          </div>
+
+          <UserGuideModal
+            key={guideOpen ? 'guide-open' : 'guide-closed'}
+            open={guideOpen}
+            onClose={() => {
+              setGuideOpen(false)
+              window.localStorage.setItem('autoqual-guide-seen', 'true')
+            }}
+            onDemo={() => {
+              setDemoKey((value) => value + 1)
+              window.localStorage.setItem('autoqual-guide-seen', 'true')
+            }}
+          />
+        </div>
+      </SocketProvider>
+    </BrowserRouter>
   )
 }
 

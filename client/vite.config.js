@@ -9,8 +9,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'pwa-icon.svg'],
       manifest: {
-        name: 'AUTO-QUAL AI',
-        short_name: 'AUTO-QUAL',
+        name: 'MachineX',
+        short_name: 'MachineX',
         description: 'Automotive quality inspection intelligence platform',
         theme_color: '#0b1117',
         background_color: '#0b1117',

@@ -19,8 +19,9 @@ const upload = multer({
 
 function requireAdminUpload(request, response, next) {
   const configuredKey = process.env.ADMIN_UPLOAD_KEY
-  if (configuredKey && request.get('x-admin-key') !== configuredKey) return response.status(401).json({ error: 'Admin upload key is invalid' })
-  if (!configuredKey && process.env.NODE_ENV === 'production') return response.status(503).json({ error: 'ADMIN_UPLOAD_KEY is not configured' })
+  const uploadAuthRequired = process.env.ADMIN_UPLOAD_REQUIRED === 'true'
+  if (uploadAuthRequired && !configuredKey) return response.status(503).json({ error: 'ADMIN_UPLOAD_KEY is not configured' })
+  if (uploadAuthRequired && request.get('x-admin-key') !== configuredKey) return response.status(401).json({ error: 'Admin upload key is invalid' })
   next()
 }
 

@@ -1,8 +1,8 @@
-import { Bounds, Html, OrbitControls, useGLTF } from '@react-three/drei'
+import { OrbitControls, useGLTF } from '@react-three/drei'
 import { Canvas, useFrame } from '@react-three/fiber'
-import { Component, Suspense, useEffect, useRef } from 'react'
-import { ZoomIn, ZoomOut } from 'lucide-react'
-import { map2DTo3DSurface } from '../utils/coordinateMapper'
+import { Box3, Vector3 } from 'three'
+import { Component, Suspense, useEffect, useMemo, useRef } from 'react'
+import { ZoomIn, ZoomOut, RotateCcw } from 'lucide-react'
 
 function Rotor({ exploded }) {
   const rotor = useRef()
@@ -62,38 +62,30 @@ function Caliper({ exploded }) {
   )
 }
 
-function DefectMarker({ defect2DBox, defectType, severity }) {
-  const marker = useRef()
-  const position = map2DTo3DSurface(defect2DBox.x, defect2DBox.y)
-  useFrame(({ clock }) => {
-    if (!marker.current) return
-    const pulse = 1 + Math.sin(clock.elapsedTime * 4) * 0.12
-    marker.current.scale.setScalar(pulse)
-  })
-
-  return (
-    <group ref={marker} position={position}>
-      <mesh>
-        <boxGeometry args={[0.28, 0.28, 0.12]} />
-        <meshBasicMaterial color="#ff4e4e" wireframe />
-      </mesh>
-      <pointLight color="#ff3d3d" intensity={1.8} distance={1.3} />
-      <Html distanceFactor={7} position={[0.2, 0.2, 0.1]}>
-        <div className="defect-tooltip"><strong>{defectType}</strong><span>{severity} severity</span></div>
-      </Html>
-    </group>
-  )
-}
-
 function RemoteModel({ url, exploded, modelColor, solidColor }) {
   const { scene } = useGLTF(url)
+  const fit = useMemo(() => {
+    const bounds = new Box3().setFromObject(scene)
+    const size = bounds.getSize(new Vector3())
+    const center = bounds.getCenter(new Vector3())
+    const largestDimension = Math.max(size.x, size.y, size.z)
+    const scale = largestDimension > 0 ? 2.8 / largestDimension : 1
+
+    return {
+      scale,
+      position: [-center.x * scale, -center.y * scale, -center.z * scale],
+    }
+  }, [scene])
+
   useEffect(() => {
+    if (!scene) return
     scene.traverse((object) => {
       if (!object.isMesh || !object.material) return
       const materials = Array.isArray(object.material) ? object.material : [object.material]
       materials.forEach((material) => {
-        if (!material.color) return
-        material.color.set(modelColor)
+        if (material.color && modelColor) {
+          material.color.set(modelColor)
+        }
         if (solidColor && material.map) {
           material.map = null
           material.needsUpdate = true
@@ -101,11 +93,12 @@ function RemoteModel({ url, exploded, modelColor, solidColor }) {
       })
     })
   }, [modelColor, scene, solidColor])
-  return <primitive object={scene} scale={1.8} position={[0, exploded ? 0.45 : 0, 0]} />
-}
 
-function DatabaseModel({ url, exploded, modelColor, solidColor }) {
-  return <RemoteModel url={url} exploded={exploded} modelColor={modelColor} solidColor={solidColor} />
+  return (
+    <group scale={fit.scale} position={[fit.position[0], fit.position[1] + (exploded ? 0.45 : 0), fit.position[2]]}>
+      <primitive object={scene} />
+    </group>
+  )
 }
 
 class ModelErrorBoundary extends Component {
@@ -116,41 +109,103 @@ class ModelErrorBoundary extends Component {
   }
 
   render() {
-    return this.state.hasError ? <div className="model-empty"><strong>3D model could not be rendered</strong><span>Check that the uploaded model was converted successfully.</span></div> : this.props.children
+    if (this.state.hasError) {
+      return (
+        <div className="model-empty">
+          <strong>3D model display reset</strong>
+          <span>Click Reset below to restore stage view.</span>
+          <button 
+            type="button" 
+            className="secondary-button" 
+            style={{ marginTop: '10px' }}
+            onClick={() => {
+              this.setState({ hasError: false })
+              this.props.onReset?.()
+            }}
+          >
+            Reset 3D Stage
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
   }
 }
 
-function BrakePadCanvas({ modelUrl, defect2DBox, defectType, severity, exploded, showDefect, modelColor, solidColor, backgroundColor }) {
+function BrakePadCanvas({ 
+  modelUrl, 
+  exploded, 
+  modelColor, 
+  solidColor, 
+  backgroundColor,
+  onReset
+}) {
   const controlsRef = useRef()
+
   const zoom = (direction) => {
     if (!controlsRef.current) return
     direction === 'in' ? controlsRef.current.dollyIn(1.25) : controlsRef.current.dollyOut(1.25)
     controlsRef.current.update()
   }
 
+  const handleResetCamera = () => {
+    if (controlsRef.current) {
+      controlsRef.current.reset()
+    }
+    if (onReset) {
+      onReset()
+    }
+  }
+
   return (
     <>
-      <Canvas camera={{ position: [4.2, 3.2, 5.1], fov: 42 }} dpr={[1, 2]}>
-        <color attach="background" args={[backgroundColor]} />
+      <Canvas 
+        camera={{ position: [0, 0, 5.5], fov: 45 }} 
+        dpr={[1, 1.5]}
+        gl={{ preserveDrawingBuffer: false, powerPreference: 'high-performance' }}
+      >
+        <color attach="background" args={[backgroundColor || '#101a20']} />
         <ambientLight intensity={1.2} />
         <directionalLight position={[4, 5, 6]} intensity={2.4} />
         <directionalLight position={[-4, -2, -3]} intensity={0.8} />
-        <Bounds fit clip observe margin={1.35}>
-          <group rotation={[0.35, -0.35, 0]}>
-            {modelUrl ? <Suspense fallback={null}><DatabaseModel url={modelUrl} exploded={exploded} modelColor={modelColor} solidColor={solidColor} /></Suspense> : <><Rotor exploded={exploded} /><BrakePad exploded={exploded} /><Caliper exploded={exploded} /></>}
-            {showDefect && <DefectMarker defect2DBox={defect2DBox} defectType={defectType} severity={severity} />}
-          </group>
-        </Bounds>
-        <OrbitControls ref={controlsRef} makeDefault enableDamping enableZoom minDistance={0.5} maxDistance={30} />
+
+        <group position={[0, 0, 0]} rotation={[0.35, -0.35, 0]}>
+          {modelUrl ? (
+            <Suspense fallback={null}>
+              <RemoteModel url={modelUrl} exploded={exploded} modelColor={modelColor} solidColor={solidColor} />
+            </Suspense>
+          ) : (
+            <>
+              <Rotor exploded={exploded} />
+              <BrakePad exploded={exploded} />
+              <Caliper exploded={exploded} />
+            </>
+          )}
+
+        </group>
+
+        <OrbitControls ref={controlsRef} makeDefault enableDamping enableZoom minDistance={1} maxDistance={20} />
       </Canvas>
+
       <div className="model-zoom-controls" aria-label="3D model zoom controls">
-        <button type="button" className="icon-button" onClick={() => zoom('in')} title="Zoom in" aria-label="Zoom in"><ZoomIn size={17} /></button>
-        <button type="button" className="icon-button" onClick={() => zoom('out')} title="Zoom out" aria-label="Zoom out"><ZoomOut size={17} /></button>
+        <button type="button" className="icon-button" onClick={() => zoom('in')} title="Zoom in" aria-label="Zoom in">
+          <ZoomIn size={17} />
+        </button>
+        <button type="button" className="icon-button" onClick={() => zoom('out')} title="Zoom out" aria-label="Zoom out">
+          <ZoomOut size={17} />
+        </button>
+        <button type="button" className="icon-button" onClick={handleResetCamera} title="Reset camera & stage" aria-label="Reset stage">
+          <RotateCcw size={17} />
+        </button>
       </div>
     </>
   )
 }
 
 export default function BrakePad3D(props) {
-  return <ModelErrorBoundary><BrakePadCanvas {...props} /></ModelErrorBoundary>
+  return (
+    <ModelErrorBoundary key={`${props.modelUrl || 'default-stage'}-${props.resetKey || 0}`} onReset={props.onReset}>
+      <BrakePadCanvas {...props} />
+    </ModelErrorBoundary>
+  )
 }
