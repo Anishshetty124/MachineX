@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { BrowserRouter, Navigate, NavLink, Route, Routes, useNavigate } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
-import { Bell, Bot, CarFront, CircleHelp, LayoutDashboard, LogOut, Menu, Activity, Boxes, History, ShieldCheck, X } from 'lucide-react'
+import { Activity, Bot, Boxes, CarFront, CircleHelp, History, LayoutDashboard, LogOut, Menu, ScanSearch, ShieldCheck, X } from 'lucide-react'
 import { io } from 'socket.io-client'
 import InspectionPage from './pages/InspectionPage'
+import OverviewPage from './pages/OverviewPage'
 import DiagnosticsPage from './pages/DiagnosticsPage'
 import ChatbotPage from './pages/ChatbotPage'
 import PartsAvailabilityPage from './pages/PartsAvailabilityPage'
@@ -11,6 +12,7 @@ import HistoryPage from './pages/HistoryPage'
 import UserGuideModal from './components/UserGuideModal'
 import AuthPage from './pages/AuthPage'
 import AdminPage from './pages/AdminPage'
+import ParticleBackground from './components/ParticleBackground'
 import { clearSession, getSessionExpiry, getStoredUser } from './auth'
 import { SocketContext } from './SocketContext'
 import './App.css'
@@ -27,10 +29,6 @@ function SocketProvider({ children }) {
   }, [])
 
   return <SocketContext.Provider value={socket}>{children}</SocketContext.Provider>
-}
-
-function Dashboard({ demoKey }) {
-  return <InspectionPage key={demoKey} demoRequested={demoKey > 0} />
 }
 
 function ControlPlaceholder() {
@@ -54,6 +52,7 @@ function ProtectedApp({ user, onLogout }) {
 
   const navigation = [
     ['/', 'Overview', LayoutDashboard],
+    ['/inspection', 'Quality inspection', ScanSearch],
     ['/diagnostics/latest', 'Diagnostics', Activity],
     ['/chatbot', 'Assistant', Bot],
     ['/parts', 'Parts & availability', Boxes],
@@ -76,10 +75,10 @@ function ProtectedApp({ user, onLogout }) {
         <div className="sidebar-footer"><div className="operator"><span>{user.name.slice(0, 2).toUpperCase()}</span><div><strong>{user.name}</strong><small>{user.role}</small></div></div></div>
       </aside>
       <div className="main-column">
-        <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setDrawerOpen(true)} aria-label="Open menu"><Menu size={22} /></button><span className="topbar-title">Plant 01 / Main floor</span><div className="topbar-actions"><button className="guide-button" onClick={() => setGuideOpen(true)}><CircleHelp size={16} />How to use</button><button className="icon-button" aria-label="Notifications"><Bell size={19} /></button><button className="auth-logout-icon" onClick={logout} aria-label="Sign out" title="Sign out"><LogOut size={18} /></button><span className="avatar">{user.name.slice(0, 2).toUpperCase()}</span></div></header>
-        <main><AnimatePresence>{drawerOpen && <div className="scrim" onClick={() => setDrawerOpen(false)} />}</AnimatePresence><Routes><Route path="/" element={<Dashboard demoKey={demoKey} />} /><Route path="/diagnostics" element={<DiagnosticsPage />} /><Route path="/diagnostics/:id" element={<DiagnosticsPage />} /><Route path="/chatbot" element={<ChatbotPage />} /><Route path="/parts" element={<PartsAvailabilityPage />} /><Route path="/history" element={<HistoryPage />} /><Route path="/admin" element={user.role === 'admin' ? <AdminPage /> : <Navigate to="/" replace />} /><Route path="/control" element={<ControlPlaceholder />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes></main>
+        <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setDrawerOpen(true)} aria-label="Open menu"><Menu size={22} /></button><span className="topbar-title">Plant 01 / Main floor</span><div className="topbar-actions"><button className="guide-button" onClick={() => setGuideOpen(true)}><CircleHelp size={16} />How to use</button><button className="auth-logout-icon" onClick={logout} aria-label="Sign out" title="Sign out"><LogOut size={18} /></button><span className="avatar">{user.name.slice(0, 2).toUpperCase()}</span></div></header>
+        <main><AnimatePresence>{drawerOpen && <div className="scrim" onClick={() => setDrawerOpen(false)} />}</AnimatePresence><Routes><Route path="/" element={<OverviewPage />} /><Route path="/inspection" element={<InspectionPage key={demoKey} demoRequested={demoKey > 0} />} /><Route path="/diagnostics" element={<DiagnosticsPage />} /><Route path="/diagnostics/:id" element={<DiagnosticsPage />} /><Route path="/chatbot" element={<ChatbotPage />} /><Route path="/parts" element={<PartsAvailabilityPage />} /><Route path="/history" element={<HistoryPage />} /><Route path="/admin" element={user.role === 'admin' ? <AdminPage /> : <Navigate to="/" replace />} /><Route path="/control" element={<ControlPlaceholder />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes></main>
       </div>
-      <UserGuideModal open={guideOpen} onClose={() => { setGuideOpen(false); window.localStorage.setItem('autoqual-guide-seen', 'true') }} onDemo={() => { setDemoKey((value) => value + 1); window.localStorage.setItem('autoqual-guide-seen', 'true') }} />
+      <UserGuideModal open={guideOpen} onClose={() => { setGuideOpen(false); window.localStorage.setItem('autoqual-guide-seen', 'true') }} onDemo={() => { setDemoKey((value) => value + 1); setGuideOpen(false); window.localStorage.setItem('autoqual-guide-seen', 'true'); navigate('/inspection') }} />
     </div>
   </SocketProvider>
 }
@@ -100,6 +99,7 @@ function App() {
 
   return (
     <BrowserRouter>
+      <ParticleBackground />
       <Routes>
         <Route path="/login" element={user ? <Navigate to="/" replace /> : <AuthPage onAuthenticated={setUser} />} />
         <Route path="*" element={user ? <ProtectedApp user={user} onLogout={() => setUser(null)} /> : <Navigate to="/login" replace />} />

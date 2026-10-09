@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Activity, Cpu, CheckCircle2, AlertOctagon, Wrench, ShieldAlert, Target, ClipboardCheck } from 'lucide-react'
+import { Activity, AlertOctagon, ArrowLeft, CheckCircle2, ClipboardCheck, Cpu, ScanSearch, ShieldAlert, Target, Wrench } from 'lucide-react'
 import { authFetch } from '../auth'
 
 export default function DiagnosticsPage() {
@@ -32,7 +32,7 @@ export default function DiagnosticsPage() {
 
       authFetch(`/api/inspections/${id}`)
         .then((res) => {
-          if (!res.ok) throw new Error(`Inspection record '${id}' not found in MongoDB.`)
+          if (!res.ok) throw new Error('No inspection is ready yet. Add a 2D part image to create a diagnostics report.')
           return res.json()
         })
         .then((payload) => {
@@ -58,7 +58,7 @@ export default function DiagnosticsPage() {
             setInspection(cachedData)
             setError('Loaded latest inspection from session storage.')
           } else {
-            setError(requestError.message)
+            setError(requestError.message || 'Add a 2D part image to begin your diagnostics report.')
           }
           setLoading(false)
         })
@@ -79,7 +79,15 @@ export default function DiagnosticsPage() {
   }
 
   if (error && !inspection) {
-    return <div className="history-error" style={{ margin: '4rem auto', maxWidth: '700px' }}>{error}</div>
+    return (
+      <div className="diagnostics-state">
+        <div className="diagnostics-state-icon"><ScanSearch size={24} /></div>
+        <p className="eyebrow">Diagnostics workspace</p>
+        <h1>Add a 2D part image to begin</h1>
+        <p className="muted">Upload a clear brake pad, disc, or other component image in Quality inspection. MachineX will analyze the evidence and prepare the diagnostics report here.</p>
+        <button type="button" className="primary-button" onClick={() => navigate('/inspection')}>Go to quality inspection</button>
+      </div>
+    )
   }
 
   const rootCause = inspection?.rootCause || {}
