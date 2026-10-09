@@ -1,4 +1,4 @@
-import { Camera, Check, ChevronDown, FileImage, Pencil, RotateCcw, ScanSearch, Trash2, Upload, UploadCloud, Video, X } from 'lucide-react'
+import { Camera, Check, ChevronDown, Download, FileImage, Pencil, RotateCcw, ScanSearch, Trash2, Upload, UploadCloud, Video, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import BrakePad3D from '../components/BrakePad3D'
@@ -63,6 +63,38 @@ export default function InspectionPage({ demoRequested = false }) {
   const [adminKey, setAdminKey] = useState('')
   const [uploadStatus, setUploadStatus] = useState('idle')
   const [uploadMessage, setUploadMessage] = useState('')
+  const [installPrompt, setInstallPrompt] = useState(null)
+  const [installState, setInstallState] = useState(() => (
+    window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true
+      ? 'installed'
+      : 'available'
+  ))
+
+  useEffect(() => {
+    const onBeforeInstallPrompt = (event) => {
+      event.preventDefault()
+      setInstallPrompt(event)
+      setInstallState('available')
+    }
+    const onAppInstalled = () => {
+      setInstallPrompt(null)
+      setInstallState('installed')
+    }
+    window.addEventListener('beforeinstallprompt', onBeforeInstallPrompt)
+    window.addEventListener('appinstalled', onAppInstalled)
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onBeforeInstallPrompt)
+      window.removeEventListener('appinstalled', onAppInstalled)
+    }
+  }, [])
+
+  const installApp = async () => {
+    if (!installPrompt) return
+    installPrompt.prompt()
+    const choice = await installPrompt.userChoice
+    setInstallPrompt(null)
+    setInstallState(choice.outcome === 'accepted' ? 'installed' : 'available')
+  }
 
   const resetModelView = () => {
     setExploded(false)
@@ -197,7 +229,7 @@ export default function InspectionPage({ demoRequested = false }) {
       payload.append('station', form.station)
       payload.append('batch', form.batch)
       payload.append('telemetry', JSON.stringify({
-        castingTemp: Number(form.temperature) || 750,
+        castingTemp: Number(form.temperature) || 695,
         moldPressure: 135,
         machineSpeed: 80,
         vibrationRate: Number(form.vibration) || 3.8,
@@ -360,6 +392,11 @@ export default function InspectionPage({ demoRequested = false }) {
         <div className="model-status">
           <span className={modelStatus === 'ready' && modelAsset ? 'status-dot live' : 'status-dot'} />
           {modelStatus === 'ready' && modelAsset ? '3D model active' : catalogStatus === 'loading' ? 'Loading model catalog' : 'Select a model to begin'}
+        </div>
+        <div className="pwa-install-control">
+          <button type="button" className="primary-button pwa-install-button" onClick={installApp} disabled={installState === 'installed'}>
+            <Download size={15} />{installState === 'installed' ? 'App installed' : 'Install MachineX'}
+          </button>
         </div>
       </div>
 

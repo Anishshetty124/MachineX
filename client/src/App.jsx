@@ -11,7 +11,7 @@ import HistoryPage from './pages/HistoryPage'
 import UserGuideModal from './components/UserGuideModal'
 import AuthPage from './pages/AuthPage'
 import AdminPage from './pages/AdminPage'
-import { clearSession, getStoredUser } from './auth'
+import { clearSession, getSessionExpiry, getStoredUser } from './auth'
 import { SocketContext } from './SocketContext'
 import './App.css'
 
@@ -86,6 +86,17 @@ function ProtectedApp({ user, onLogout }) {
 
 function App() {
   const [user, setUser] = useState(getStoredUser)
+
+  useEffect(() => {
+    if (!user) return undefined
+    const expiresAt = getSessionExpiry()
+    if (!expiresAt) return undefined
+    const timeout = window.setTimeout(() => {
+      clearSession()
+      setUser(null)
+    }, Math.max(0, expiresAt - Date.now()))
+    return () => window.clearTimeout(timeout)
+  }, [user])
 
   return (
     <BrowserRouter>

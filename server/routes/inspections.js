@@ -122,7 +122,16 @@ router.get('/:id/history-analysis', requireAuth, async (request, response, next)
       counts[level] = (counts[level] || 0) + 1
       return counts
     }, {})
-    const risks = records.map((record) => Number(record.predictiveRisk?.failureProbabilityNextCycle)).filter(Number.isFinite)
+    const storedRisks = records.map((record) => Number(record.predictiveRisk?.failureProbabilityNextCycle)).filter(Number.isFinite)
+    const hasMeaningfulRiskVariation = new Set(storedRisks.map((risk) => risk.toFixed(3))).size > 1
+    const severityRisk = { low: 0.18, medium: 0.42, high: 0.68, critical: 0.88 }
+    const riskForRecord = (record) => {
+      const storedRisk = Number(record.predictiveRisk?.failureProbabilityNextCycle)
+      if (hasMeaningfulRiskVariation && Number.isFinite(storedRisk)) return storedRisk
+      const level = String(record.severity || record.defect?.severity || 'medium').toLowerCase()
+      return severityRisk[level] ?? 0.42
+    }
+    const risks = records.map(riskForRecord)
     const currentRisk = Number(current.predictiveRisk?.failureProbabilityNextCycle)
     const averageRisk = risks.length ? risks.reduce((sum, value) => sum + value, 0) / risks.length : null
     const previousSeverities = records.map((record) => String(record.severity || record.defect?.severity || 'low').toLowerCase())
@@ -130,7 +139,7 @@ router.get('/:id/history-analysis', requireAuth, async (request, response, next)
     const lastSeverity = previousSeverities[0]
     const riskSeries = [...records].reverse().map((record) => ({
       date: record.createdAt,
-      risk: Number.isFinite(Number(record.predictiveRisk?.failureProbabilityNextCycle)) ? Number(record.predictiveRisk.failureProbabilityNextCycle) : null,
+      risk: riskForRecord(record),
       severity: String(record.severity || record.defect?.severity || 'low').toLowerCase(),
     })).filter((point) => point.risk !== null)
     if (Number.isFinite(currentRisk)) riskSeries.push({ date: current.createdAt, risk: currentRisk, severity: currentSeverity })
@@ -159,6 +168,7 @@ router.get('/:id/history-analysis', requireAuth, async (request, response, next)
         trend: lastSeverity && severityRank[currentSeverity] > severityRank[lastSeverity] ? 'worsening' : lastSeverity && severityRank[currentSeverity] < severityRank[lastSeverity] ? 'improving' : 'stable',
         riskSeries,
         projectedRisk,
+        riskSource: hasMeaningfulRiskVariation ? 'stored model predictions' : 'severity-based estimate for legacy uniform-risk records',
         forecastConfidence: Math.min(0.95, 0.55 + (records.length * 0.06)),
         likelyDefect,
         recommendedAction,

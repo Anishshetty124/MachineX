@@ -99,7 +99,10 @@ export default function DiagnosticsPage() {
   const impactDescription = primaryImpact.parameter === 'Casting Temperature'
     ? 'Temperature variation can promote thermal damage and surface defects.'
     : `${primaryImpact.parameter} was the largest measured contributor to this inspection.`
-  const riskPercent = Math.round((predictiveRisk.failureProbabilityNextCycle || 0.74) * 100)
+  const riskPercent = Number.isFinite(Number(predictiveRisk.failureProbabilityNextCycle))
+    ? Math.round(Number(predictiveRisk.failureProbabilityNextCycle) * 100)
+    : null
+  const riskChartPercent = riskPercent ?? 0
   const boxX = Math.round((box.x ?? box[0] ?? 0.36) * 100)
   const boxY = Math.round((box.y ?? box[1] ?? 0.26) * 100)
   const boxWidth = Math.max(8, Math.round((box.width ?? box[2] ?? 0.2) * 100))
@@ -237,7 +240,7 @@ export default function DiagnosticsPage() {
           </div>
           <div style={{ textAlign: 'center', padding: '1rem 0' }}>
             <div style={{ fontSize: '52px', fontWeight: 800, lineHeight: 1, color: '#f87171' }}>
-              {riskPercent}%
+              {riskPercent == null ? '—' : `${riskPercent}%`}
             </div>
             <p style={{ color: '#94a3b8', fontSize: '13px', margin: '0.75rem 0 0 0' }}>
               Risk score for Machine {predictiveRisk.machineId || telemetry.machineId || 'Line A - Chassis'} on next cycle
@@ -269,14 +272,14 @@ export default function DiagnosticsPage() {
             <h3 style={{ margin: 0, fontSize: '16px' }}>Risk trajectory</h3>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
-            <div style={{ width: '150px', height: '150px', borderRadius: '50%', display: 'grid', placeItems: 'center', background: `conic-gradient(#ef4444 ${riskPercent}%, #263749 0)` }}>
-              <div style={{ width: '112px', height: '112px', borderRadius: '50%', display: 'grid', placeItems: 'center', background: '#0f172a', color: '#f8fafc', fontSize: '28px', fontWeight: 800 }}>{riskPercent}%</div>
+            <div style={{ width: '150px', height: '150px', borderRadius: '50%', display: 'grid', placeItems: 'center', background: `conic-gradient(#ef4444 ${riskChartPercent}%, #263749 0)` }}>
+              <div style={{ width: '112px', height: '112px', borderRadius: '50%', display: 'grid', placeItems: 'center', background: '#0f172a', color: '#f8fafc', fontSize: '28px', fontWeight: 800 }}>{riskPercent == null ? '—' : `${riskPercent}%`}</div>
             </div>
             <div style={{ flex: 1, minWidth: '180px' }}>
               <strong style={{ color: '#f8fafc', fontSize: '15px' }}>{predictiveRisk.trend === 'rising' ? 'Risk is rising' : 'Risk is stable'}</strong>
               <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.5 }}>Estimated probability of a quality failure in the next production cycle.</p>
               <div style={{ display: 'flex', alignItems: 'end', gap: '4px', height: '48px' }}>
-                {[35, 44, 40, 58, 63, 71, riskPercent].map((height, index) => <span key={index} style={{ flex: 1, height: `${Math.min(100, height)}%`, background: index === 6 ? '#f87171' : '#3b82a6', borderRadius: '3px 3px 0 0' }} />)}
+                {[35, 44, 40, 58, 63, 71, riskChartPercent].map((height, index) => <span key={index} style={{ flex: 1, height: `${Math.min(100, height)}%`, background: index === 6 ? '#f87171' : '#3b82a6', borderRadius: '3px 3px 0 0' }} />)}
               </div>
               <small style={{ color: '#80909b', font: '10px "DM Mono", monospace' }}>previous cycles → next cycle forecast</small>
             </div>
@@ -307,7 +310,7 @@ export default function DiagnosticsPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem', marginBottom: '1.2rem' }}>
               <div style={{ background: '#111c29', padding: '0.9rem', borderRadius: '8px' }}><small style={{ color: '#80909b' }}>PREVIOUS REPORTS</small><strong style={{ display: 'block', color: '#f8fafc', fontSize: '22px', marginTop: '0.3rem' }}>{historyAnalysis.count}</strong></div>
               <div style={{ background: '#111c29', padding: '0.9rem', borderRadius: '8px' }}><small style={{ color: '#80909b' }}>AVERAGE PRIOR RISK</small><strong style={{ display: 'block', color: '#fbbf24', fontSize: '22px', marginTop: '0.3rem' }}>{historyRiskPercent}%</strong></div>
-              <div style={{ background: '#111c29', padding: '0.9rem', borderRadius: '8px' }}><small style={{ color: '#80909b' }}>CURRENT RISK</small><strong style={{ display: 'block', color: currentRiskPercent > historyRiskPercent ? '#f87171' : '#4ade80', fontSize: '22px', marginTop: '0.3rem' }}>{currentRiskPercent ?? riskPercent}%</strong></div>
+              <div style={{ background: '#111c29', padding: '0.9rem', borderRadius: '8px' }}><small style={{ color: '#80909b' }}>CURRENT RISK</small><strong style={{ display: 'block', color: currentRiskPercent > historyRiskPercent ? '#f87171' : '#4ade80', fontSize: '22px', marginTop: '0.3rem' }}>{currentRiskPercent == null ? '—' : `${currentRiskPercent}%`}</strong></div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 0.8fr) minmax(280px, 1.2fr)', gap: '1.2rem' }}>
               <div>
